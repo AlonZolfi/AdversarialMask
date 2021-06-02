@@ -16,6 +16,7 @@ from utils import SplitDataset, CustomDataset, CustomDataset1, load_embedder
 
 global device
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print(device)
 
 if sys.base_prefix.__contains__('home/zolfi'):
     sys.path.append('/home/zolfi/AdversarialMask/patch')

@@ -1,14 +1,14 @@
 import torch
 
 
-def render_cy_pt(vertices, new_colors, triangles, b, h, w):
-    vis_colors = torch.ones((1, vertices.shape[-1]))
-    new_image = render_texture_pt(vertices.squeeze(0), new_colors.squeeze(0), triangles, b, h, w, 3)
-    face_mask = render_texture_pt(vertices.squeeze(0), vis_colors, triangles, b, h, w, 1)
+def render_cy_pt(vertices, new_colors, triangles, b, h, w, device):
+    vis_colors = torch.ones((1, vertices.shape[-1]), device=device)
+    new_image = render_texture_pt(vertices.squeeze(0), new_colors.squeeze(0), triangles, device, b, h, w, 3)
+    face_mask = render_texture_pt(vertices.squeeze(0), vis_colors, triangles, device, b, h, w, 1)
     return face_mask, new_image
 
 
-def render_texture_pt(vertices, colors, triangles, b, h, w, c = 3):
+def render_texture_pt(vertices, colors, triangles, device, b, h, w, c = 3):
     ''' render mesh by z buffer
     Args:
         vertices: 3 x nver
@@ -19,10 +19,10 @@ def render_texture_pt(vertices, colors, triangles, b, h, w, c = 3):
     '''
     # initial
     # image = torch.zeros((h, w, c))
-    image1 = torch.zeros((h, w, c))
+    image1 = torch.zeros((h, w, c), device=device)
 
     # depth_buffer = torch.zeros([h, w]) - 999999.
-    depth_buffer1 = torch.zeros([h, w]) - 999999.
+    depth_buffer1 = torch.zeros([h, w], device=device) - 999999.
     # triangle depth: approximate the depth to the average value of z in each vertex(v0, v1, v2), since the vertices are closed to each other
     tri_depth = (vertices[2, triangles[0,:]] + vertices[2,triangles[1,:]] + vertices[2, triangles[2,:]])/3.
     tri_tex = (colors[:, triangles[0, :]] + colors[:,triangles[1, :]] + colors[:, triangles[2, :]])/3.
@@ -40,7 +40,7 @@ def render_texture_pt(vertices, colors, triangles, b, h, w, c = 3):
         if umax < umin or vmax < vmin:
             continue
 
-        uv_vector = torch.cartesian_prod(torch.arange(umin, umax+1), torch.arange(vmin, vmax+1))
+        uv_vector = torch.cartesian_prod(torch.arange(umin, umax+1, device=device), torch.arange(vmin, vmax+1, device=device))
         condition = (tri_depth[i] > depth_buffer1[vmin:vmax+1, umin:umax+1]) & \
                     (arePointsInTri_pt(uv_vector, vertices[:2, tri].unsqueeze(0), umax-umin+1, vmax-vmin+1))
         depth_buffer1[vmin:vmax+1, umin:umax+1] = torch.where(condition, tri_depth[i].repeat(condition.shape), depth_buffer1[vmin:vmax+1, umin:umax+1])

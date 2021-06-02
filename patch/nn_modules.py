@@ -178,16 +178,19 @@ class LocationExtractor(nn.Module):
     def forward(self, img_batch):
         points = self.face_align.get_landmarks_from_batch(img_batch * 255)
         single_face_points = [landmarks[:68] for landmarks in points]
-        preds = np.array(single_face_points)
-        preds[..., 0] /= self.img_size_width
-        preds[..., 1] /= self.img_size_height
-        x_center = torch.from_numpy(preds[:, 2, 0]+(np.abs(preds[:, 14, 0] - preds[:, 2, 0])/2))
-        y_center = torch.from_numpy(preds[:, 29, 1]+(np.abs(preds[:, 8, 1] - preds[:, 29, 1])/2))
-        width = torch.abs(torch.from_numpy(preds[:, 14, 0] - preds[:, 2, 0]))
-        height = torch.abs(torch.from_numpy(preds[:, 29, 1] - preds[:, 8, 1]))
-        lab_batch = torch.stack([torch.zeros_like(x_center), x_center, y_center, width, height], dim=1)
-        lab_batch = lab_batch.unsqueeze(1)
-        return lab_batch, torch.from_numpy(np.array(single_face_points))
+        # preds = np.array(single_face_points)
+        # preds[..., 0] /= self.img_size_width
+        # preds[..., 1] /= self.img_size_height
+        # x_center = torch.from_numpy(preds[:, 2, 0]+(np.abs(preds[:, 14, 0] - preds[:, 2, 0])/2))
+        # y_center = torch.from_numpy(preds[:, 29, 1]+(np.abs(preds[:, 8, 1] - preds[:, 29, 1])/2))
+        # width = torch.abs(torch.from_numpy(preds[:, 14, 0] - preds[:, 2, 0]))
+        # height = torch.abs(torch.from_numpy(preds[:, 29, 1] - preds[:, 8, 1]))
+        # lab_batch = torch.stack([torch.zeros_like(x_center), x_center, y_center, width, height], dim=1)
+        # lab_batch = lab_batch.unsqueeze(1)
+        # preds = torch.from_numpy(np.array(single_face_points))
+        lab_batch = None
+        preds = torch.tensor(single_face_points, device=self.device)
+        return lab_batch, preds
 
 
 class Projector(nn.Module):
@@ -300,8 +303,9 @@ class FaceXZooProjector(nn.Module):
         self.img_size_height = img_size[0]
         self.patch_size_width = patch_size[1]
         self.patch_size_height = patch_size[0]
-        self.uv_mask_src = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L'))
-        self.triangles = torch.from_numpy(np.loadtxt('../prnet/triangles.txt').astype(np.int64)).T
+        self.device = device
+        self.uv_mask_src = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L')).to(self.device)
+        self.triangles = torch.from_numpy(np.loadtxt('../prnet/triangles.txt').astype(np.int64)).T.to(self.device)
 
     def forward(self, img_batch, landmarks, adv_patch):
         ref_texture_src = adv_patch
@@ -314,7 +318,8 @@ class FaceXZooProjector(nn.Module):
                                                    self.triangles,
                                                    img_batch.shape[0],
                                                    self.img_size_height,
-                                                   self.img_size_width)
+                                                   self.img_size_width,
+                                                   self.device)
         face_mask = torch.where(torch.floor(face_mask) > 0,
                                 torch.ones_like(face_mask),
                                 torch.zeros_like(face_mask)).unsqueeze(0)
@@ -375,7 +380,7 @@ class PRN:
                                 [0, self.resolution - 1],
                                 [self.resolution - 1, 0],
                                 [self.resolution - 1, self.resolution - 1]],
-                               dtype=torch.float32).repeat(src_pts.shape[0], 1, 1)
+                               dtype=torch.float32, device=self.device).repeat(src_pts.shape[0], 1, 1)
 
         tform = kornia.geometry.find_homography_dlt(src_pts, dst_pts)
         cropped_image = kornia.geometry.warp_perspective(img_batch, tform, dsize=(self.resolution, self.resolution))

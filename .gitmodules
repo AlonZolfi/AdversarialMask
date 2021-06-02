@@ -1,0 +1,6 @@
+[submodule "facenet_pytorch"]
+	path = facenet_pytorch
+	url = https://github.com/timesler/facenet-pytorch.git
+[submodule "face-alignment"]
+	path = face-alignment
+	url = https://github.com/1adrianb/face-alignment.git

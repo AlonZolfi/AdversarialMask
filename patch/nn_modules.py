@@ -1,0 +1,417 @@
+import torch.nn as nn
+import matplotlib.pyplot as plt
+import torch
+import numpy as np
+import torch.nn.functional as F
+from face_alignment import FaceAlignment, LandmarksType
+from torchvision import transforms
+
+import kornia
+from kornia.geometry.homography import find_homography_dlt
+
+from prnet import PRNet
+import render
+
+from PIL import Image
+
+
+class LandmarksApplier(nn.Module):
+    def __init__(self, indices):
+        super(LandmarksApplier, self).__init__()
+        self.indices = indices
+
+    def forward(self, img_batch, points):
+        img = transforms.ToPILImage()(img_batch[0])
+        for detection in points:
+            plt.imshow(img)
+            detection[36, 1] = detection[29, 1]
+            detection[45, 1] = detection[29, 1]
+            plt.fill(detection[self.indices, 0], detection[self.indices, 1], color=(0.4, 1, 1), edgecolor='white')
+            plt.scatter(detection[self.indices, 0], detection[self.indices, 1], 2)
+            plt.show()
+        print('x')
+
+
+class PatchApplier(nn.Module):
+    def __init__(self, indices):
+        super(PatchApplier, self).__init__()
+        self.indices = indices
+
+    # def forward(self, img, points):
+    #     for detection in points:
+    #         plt.imshow(img)
+    #         detection[36, 1] = detection[29, 1]
+    #         detection[45, 1] = detection[29, 1]
+    #         fig = plt.fill(detection[self.indices, 0], detection[self.indices, 1], color=(0.4, 1, 1), edgecolor='white')
+    #         plt.scatter(detection[self.indices, 0], detection[self.indices, 1], 2)
+    #         plt.show()
+    #     print('x')
+
+    def forward(self, img_batch, adv_patch):
+        advs = torch.unbind(adv_patch.unsqueeze(1), 1)
+        for i, adv in enumerate(advs):
+            transforms.ToPILImage()(img_batch[i]).show()
+            img_batch = torch.where((adv == 0), img_batch, adv)
+            transforms.ToPILImage()(img_batch[i]).show()
+        return img_batch
+
+
+class PatchTransformer(nn.Module):
+    def __init__(self, device, img_size, patch_size):
+        super(PatchTransformer, self).__init__()
+        self.device = device
+        self.img_size_width = img_size[1]
+        self.img_size_height = img_size[0]
+
+        self.patch_size_width = patch_size[1]
+        self.patch_size_height = patch_size[0]
+
+    def forward(self, adv_patch, lab_batch, preds):
+        pad_height = int((self.img_size_height - self.patch_size_height) / 2)
+        pad_width = int((self.img_size_width - self.patch_size_width) / 2)
+        adv_batch = adv_patch.expand(lab_batch.size(0), lab_batch.size(1), -1, -1, -1)
+        mypad = nn.ConstantPad2d((pad_width, pad_width, pad_height, pad_height), 0)
+        adv_batch = mypad(adv_batch)
+        # transforms.ToPILImage()(adv_batch[0][0]).show()
+
+        batch_size = lab_batch.size()[:2]
+        target_x = lab_batch[..., 1].view(np.prod(batch_size))
+        target_y = lab_batch[..., 2].view(np.prod(batch_size))
+        s = adv_batch.size()
+        adv_batch = adv_batch.view(s[0] * s[1], s[2], s[3], s[4])
+        tx = (-target_x + 0.5) * 2  # [0,1] to [-1,1]
+        ty = (-target_y + 0.5) * 2  # [0,1] to [-1,1]
+        ty = ty + 0.1
+        anglesize = (lab_batch.size(0) * lab_batch.size(1))
+
+        scaled_width = lab_batch[:, :, 3] * self.img_size_width
+        scaled_height = lab_batch[:, :, 4] * self.img_size_height
+        # target_size_x = torch.sqrt(((scaled_width) ** 2) + ((scaled_height) ** 2))
+
+        scale_x = self.patch_size_width / scaled_width
+        scale_x = scale_x.view(batch_size[0]*batch_size[1])
+        scale_y = self.patch_size_height / scaled_height
+        scale_y = scale_y.view(batch_size[0]*batch_size[1])
+
+        theta = torch.zeros((anglesize, 2, 3), device=self.device)
+        theta[:, 0, 0] = scale_x
+        theta[:, 0, 1] = 0
+        theta[:, 0, 2] = tx
+        theta[:, 1, 0] = 0
+        theta[:, 1, 1] = scale_y
+        theta[:, 1, 2] = ty
+        grid = F.affine_grid(theta, adv_batch.shape)
+        adv_batch_t = F.grid_sample(adv_batch, grid, padding_mode='border')
+        adv_batch_t = adv_batch_t.view(s[0], s[1], s[2], s[3], s[4])
+        adv_batch_t = torch.clamp(adv_batch_t, 0, 0.999999)
+
+        # transforms.ToPILImage()(adv_batch_t[0][0]).show()
+        return adv_batch_t
+
+    # def forward(self, adv_patch, lab_batch, preds):
+    #     pad_height = (self.img_size_height - self.patch_size_height) / 2
+    #     pad_width = (self.img_size_width - self.patch_size_width) / 2
+    #     adv_batch = adv_patch.expand(lab_batch.size(0), lab_batch.size(1), -1, -1, -1)
+    #     mypad = nn.ConstantPad2d((int(pad_width), int(pad_width), int(pad_height), int(pad_height)), 0)
+    #     adv_batch = mypad(adv_batch)
+    #     transforms.ToPILImage()(adv_batch[0][0]).show()
+    #
+    #     batch_size = lab_batch.size()[:2]
+    #
+    #     scaled_width = lab_batch[:, :, 3] * self.img_size_width
+    #     scaled_height = lab_batch[:, :, 4] * self.img_size_height
+    #
+    #     target_size = torch.sqrt(((scaled_width*0.9) ** 2) + ((scaled_height*0.9) ** 2))
+    #     target_x = lab_batch[:, :, 1].view(np.prod(batch_size))
+    #     target_y = lab_batch[:, :, 2].view(np.prod(batch_size))
+    #
+    #     # targetoff_x = lab_batch[:, :, 3].view(np.prod(batch_size))
+    #     # targetoff_y = lab_batch[:, :, 4].view(np.prod(batch_size))
+    #
+    #     # target_y = target_y - 0.05
+    #     scale_x = target_size / self.patch_size_width
+    #     scale_x = scale_x.view(batch_size[0]*batch_size[1])
+    #     scale_y = target_size / self.patch_size_height
+    #     scale_y = scale_y.view(batch_size[0]*batch_size[1])
+    #
+    #     s = adv_batch.size()
+    #     adv_batch = adv_batch.view(s[0] * s[1], s[2], s[3], s[4])
+    #
+    #     anglesize = (lab_batch.size(0) * lab_batch.size(1))
+    #     # point1 = preds[:, 2, :]
+    #     # point2 = preds[:, 14, :]
+    #     # point_insct = np.concatenate([preds[:,2,0], preds[:, 14, 1]])
+    #     #
+    #     angle = torch.zeros(anglesize)
+    #     tx = (-target_x+0.5)*2
+    #     # tx = target_x
+    #     ty = (-target_y+0.5)*2
+    #     # ty = target_y
+    #     sin = torch.sin(angle)
+    #     cos = torch.cos(angle)
+    #
+    #     theta = torch.zeros((anglesize, 2, 3), device=self.device)
+    #     theta[:, 0, 0] = cos/scale_x
+    #     theta[:, 0, 1] = sin/scale_y
+    #     theta[:, 0, 2] = tx*cos/scale_x+ty*sin/scale_y
+    #     theta[:, 1, 0] = -sin/scale_y
+    #     theta[:, 1, 1] = cos/scale_x
+    #     theta[:, 1, 2] = -tx*sin/scale_x+ty*cos/scale_y
+    #
+    #     grid = F.affine_grid(theta, adv_batch.shape)
+    #     adv_batch_t = F.grid_sample(adv_batch, grid)
+    #     adv_batch_t = adv_batch_t.view(s[0], s[1], s[2], s[3], s[4])
+    #     adv_batch_t = torch.clamp(adv_batch_t, 0, 0.999999)
+    #
+    #     transforms.ToPILImage()(adv_batch_t[0][0]).show()
+    #     return adv_batch_t
+
+
+class LocationExtractor(nn.Module):
+    def __init__(self, device, img_size):
+        super(LocationExtractor, self).__init__()
+        self.device = device
+        self.img_size_width = img_size[1]
+        self.img_size_height = img_size[0]
+        self.face_align = FaceAlignment(LandmarksType._2D, device=str(device))
+
+    def forward(self, img_batch):
+        points = self.face_align.get_landmarks_from_batch(img_batch * 255)
+        single_face_points = [landmarks[:68] for landmarks in points]
+        preds = np.array(single_face_points)
+        preds[..., 0] /= self.img_size_width
+        preds[..., 1] /= self.img_size_height
+        x_center = torch.from_numpy(preds[:, 2, 0]+(np.abs(preds[:, 14, 0] - preds[:, 2, 0])/2))
+        y_center = torch.from_numpy(preds[:, 29, 1]+(np.abs(preds[:, 8, 1] - preds[:, 29, 1])/2))
+        width = torch.abs(torch.from_numpy(preds[:, 14, 0] - preds[:, 2, 0]))
+        height = torch.abs(torch.from_numpy(preds[:, 29, 1] - preds[:, 8, 1]))
+        lab_batch = torch.stack([torch.zeros_like(x_center), x_center, y_center, width, height], dim=1)
+        lab_batch = lab_batch.unsqueeze(1)
+        return lab_batch, torch.from_numpy(np.array(single_face_points))
+
+
+class Projector(nn.Module):
+    def __init__(self, parabola_rate, rotation_angle, patch_size, batch_size):
+        super(Projector, self).__init__()
+        self.parabola_rate = torch.tensor([parabola_rate], dtype=torch.float32).repeat(batch_size, 1)
+        self.rotation_angle = torch.tensor([rotation_angle], dtype=torch.float32).repeat(batch_size, 1)
+        self.patch_size_width = patch_size[1]
+        self.patch_size_height = patch_size[0]
+
+    def forward(self, adv_patch):
+        width_center = int(self.patch_size_width / 2)
+        adv_patch = adv_patch.permute(0, 2, 3, 1)
+        tmp = torch.cumsum(adv_patch[:, :, width_center:], dim=2)
+        tmp = torch.nn.functional.pad(tmp, (0, 0, 1, 0))
+        right_cumsum = torch.transpose(tmp, 1, 2)
+
+        tmp = torch.flip(adv_patch[:, :, :width_center], (-1,))
+        tmp = torch.cumsum(tmp, dim=2)
+        tmp = torch.nn.functional.pad(tmp, (0, 0, 1, 0))
+        left_cumsum = torch.transpose(tmp, 1, 2)
+
+        tmp = np.arange(width_center, self.patch_size_width+1, dtype=np.float32)
+        tmp = torch.from_numpy(tmp)
+        tmp = tmp.unsqueeze(0)
+        tmp = tf_pre_parabol(tmp, self.parabola_rate, width_center)
+        tmp = torch.clamp(tmp-width_center, min=0, max=width_center)
+        tmp = torch.round(tmp)
+        tmp = tmp.type(torch.int32)
+        anchors = tmp.unsqueeze(-1)
+
+        tmp = self.parabola_rate.shape[0]
+        tmp = torch.range(start=0, end=tmp-1)
+        tmp = tmp.unsqueeze(-1).unsqueeze(-1)
+        anch_inds = torch.tile(tmp, [1, width_center+1, 1])
+        new_anchors = torch.cat([anch_inds, anchors], dim=2)
+
+        tmp = torch.clamp(anchors[:, 1:]-anchors[:, :-1], min=1, max=self.patch_size_width)
+        tmp = tmp.type(torch.float32)
+        anchors_div = tmp.unsqueeze(-1)
+
+        right_anchors_cumsum = th_gather_nd(right_cumsum, new_anchors)
+
+        return anchors
+
+
+def th_gather_nd(x, coords):
+    x = x.contiguous()
+    inds = coords.mv(torch.tensor(x.stride(), dtype=torch.long))
+    x_gather = torch.index_select(x.contiguous().view(-1), 0, inds)
+    return x_gather
+
+
+def tf_integral(x, a):
+    return 0.5 * (x * torch.sqrt(x ** 2 + a) + a * torch.log(torch.abs(x + torch.sqrt(x ** 2 + a))))
+
+
+def tf_pre_parabol(x, par, width_center):
+    x = x - width_center
+    prev = 2. * par * (tf_integral(torch.abs(x), 0.25 / (par ** 2)) - tf_integral(0, 0.25 / (par ** 2)))
+    return prev + width_center
+
+
+class ap(nn.Module):
+    def __init__(self, patch_size, batch_size, img_size):
+        super(ap, self).__init__()
+        self.patch_size_width = patch_size[1]
+        self.patch_size_height = patch_size[0]
+        self.img_size_width = img_size[1]
+        self.img_size_height = img_size[0]
+        self.batch_size = batch_size
+        self.src_lms = self.get_patch_landmarks()
+
+    def forward(self, adv_patch, landmarks):
+        patch = adv_patch.repeat((self.batch_size, 1, 1, 1))
+        dst_lms = torch.from_numpy(np.concatenate([landmarks[:, 1:16], landmarks[:, 29:30]], axis=1))
+        hm_mat = find_homography_dlt(self.src_lms, dst_lms)
+        transformed_mask = kornia.warp_perspective(patch, hm_mat, dsize=(self.img_size_height, self.img_size_width))
+        # transforms.ToPILImage()(transformed_mask[0]).show()
+        return transformed_mask
+
+    def get_patch_landmarks(self):
+        lms = np.empty((16, 2))
+        lms[0] = [0, 0]
+        lms[1] = [0, (self.patch_size_height / 3) * 1]
+        lms[2] = [0, (self.patch_size_height / 3) * 2]
+        lms[3] = [0, (self.patch_size_height / 3) * 3]
+        lms[4] = [(self.patch_size_width / 8) * 1, self.patch_size_height]
+        lms[5] = [(self.patch_size_width / 8) * 2, self.patch_size_height]
+        lms[6] = [(self.patch_size_width / 8) * 3, self.patch_size_height]
+        lms[7] = [(self.patch_size_width / 8) * 4, self.patch_size_height]
+        lms[8] = [(self.patch_size_width / 8) * 5, self.patch_size_height]
+        lms[9] = [(self.patch_size_width / 8) * 6, self.patch_size_height]
+        lms[10] = [(self.patch_size_width / 8) * 7, self.patch_size_height]
+        lms[11] = [(self.patch_size_width / 8) * 8, self.patch_size_height]
+        lms[12] = [self.patch_size_width, (self.patch_size_height / 3) * 2]
+        lms[13] = [self.patch_size_width, (self.patch_size_height / 3) * 1]
+        lms[14] = [self.patch_size_width, 0]
+        lms[15] = [self.patch_size_width / 2, 0]
+        t = torch.tensor(lms.tolist(), dtype=torch.float32).unsqueeze(0)
+        t = t.repeat((self.batch_size, 1, 1))
+        return t
+
+
+class FaceXZooProjector(nn.Module):
+    def __init__(self, device, img_size, patch_size):
+        super(FaceXZooProjector, self).__init__()
+        self.prn = PRN('../prnet/prnet.pth', device)
+        self.img_size_width = img_size[1]
+        self.img_size_height = img_size[0]
+        self.patch_size_width = patch_size[1]
+        self.patch_size_height = patch_size[0]
+        self.uv_mask_src = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L'))
+        self.triangles = torch.from_numpy(np.loadtxt('../prnet/triangles.txt').astype(np.int64)).T
+
+    def forward(self, img_batch, landmarks, adv_patch):
+        ref_texture_src = adv_patch
+        pos, vertices = self.get_vertices(landmarks, img_batch)
+        texture = kornia.geometry.remap(img_batch, map_x=pos[:, 0], map_y=pos[:, 1], mode='nearest')
+        new_texture = texture * (1 - self.uv_mask_src) + ref_texture_src * self.uv_mask_src
+        new_colors = self.prn.get_colors_from_texture(new_texture)
+        face_mask, new_image = render.render_cy_pt(vertices,
+                                                   new_colors,
+                                                   self.triangles,
+                                                   img_batch.shape[0],
+                                                   self.img_size_height,
+                                                   self.img_size_width)
+        face_mask = torch.where(torch.floor(face_mask) > 0,
+                                torch.ones_like(face_mask),
+                                torch.zeros_like(face_mask)).unsqueeze(0)
+        new_image = img_batch * (1 - face_mask.permute(0, 3, 1, 2)) + (new_image * face_mask).permute(0, 3, 1, 2)
+        new_image = torch.clamp(new_image, 0, 1)  # must clip to (-1, 1)!
+        transforms.ToPILImage()(new_image.squeeze(0)).show()
+        return new_image
+
+    def get_vertices(self, face_lms, image):
+        """Get vertices
+
+        Args:
+            face_lms: face landmarks.
+            image:[0, 255]
+        """
+        pos = self.prn.process(image, face_lms)
+        vertices = self.prn.get_vertices(pos)
+        return pos, vertices
+
+
+class PRN:
+    """Process of PRNet.
+    based on:
+    https://github.com/YadiraF/PRNet/blob/master/api.py
+    """
+    def __init__(self, model_path, device):
+        self.resolution = 256
+        self.MaxPos = self.resolution * 1.1
+        self.face_ind = np.loadtxt('../prnet/face_ind.txt').astype(np.int32)
+        self.triangles = np.loadtxt('../prnet/triangles.txt').astype(np.int32)
+        self.net = PRNet(3, 3)
+        self.net.load_state_dict(torch.load(model_path))
+        self.device = device
+        self.net.to(device).eval()
+        if torch.cuda.is_available():
+            self.net = self.net.to(device)
+
+    def get_bbox_annot(self, image_info):
+        left, _ = torch.min(image_info[..., 0], dim=1)
+        right, _ = torch.max(image_info[..., 0], dim=1)
+        top, _ = torch.min(image_info[..., 1], dim=1)
+        bottom, _ = torch.max(image_info[..., 1], dim=1)
+        return left, right, top, bottom
+
+    def process(self, img_batch, image_info):
+        left, right, top, bottom = self.get_bbox_annot(image_info)
+        center = torch.stack([right - (right - left) / 2.0, bottom - (bottom - top) / 2.0], dim=-1)
+
+        old_size = (right - left + bottom - top) / 2
+        size = (old_size * 1.6).type(torch.int32)
+        # crop image
+        left_top = torch.stack((center[:, 0]-size/2, center[:, 1]-size/2), dim=-1)
+        right_top = torch.stack((center[:, 0]-size/2, center[:, 1]+size/2), dim=-1)
+        left_bottom = torch.stack((center[:, 0]+size/2, center[:, 1]-size/2), dim=-1)
+        right_bottom = torch.stack((center[:, 0]+size/2, center[:, 1]+size/2), dim=-1)
+        src_pts = torch.stack([left_top, right_top, left_bottom, right_bottom], dim=1)
+        dst_pts = torch.tensor([[0, 0],
+                                [0, self.resolution - 1],
+                                [self.resolution - 1, 0],
+                                [self.resolution - 1, self.resolution - 1]],
+                               dtype=torch.float32).repeat(src_pts.shape[0], 1, 1)
+
+        tform = kornia.geometry.find_homography_dlt(src_pts, dst_pts)
+        cropped_image = kornia.geometry.warp_perspective(img_batch, tform, dsize=(self.resolution, self.resolution))
+
+        cropped_pos = self.net(cropped_image)
+
+        # restore
+        cropped_vertices = (cropped_pos * self.MaxPos).view(cropped_pos.shape[0], 3, -1)
+        z = cropped_vertices[:, 2:3, :].clone() / tform[:, :1, :1]
+        cropped_vertices[:, 2, :] = 1
+
+        vertices = torch.bmm(torch.linalg.inv(tform), cropped_vertices)
+        vertices = torch.cat((vertices[:, :2, :], z), dim=1)
+
+        pos = vertices.reshape(vertices.shape[0], 3, self.resolution, self.resolution)
+        return pos
+
+    def get_vertices(self, pos):
+        all_vertices = pos.view(pos.shape[0], 3, -1)
+        vertices = all_vertices[..., self.face_ind]
+        return vertices
+
+    def get_colors_from_texture(self, texture):
+        all_colors = texture.view(texture.shape[0], 3, -1)
+        colors = all_colors[..., self.face_ind]
+        return colors
+
+
+def read_landmark_106_array(face_lms):
+    map = [[1,2],[3,4],[5,6],7,9,11,[12,13],14,16,18,[19,20],21,23,25,[26,27],[28,29],[30,31],33,34,35,36,37,42,43,44,45,46,51,52,53,54,58,59,60,61,62,66,67,69,70,71,73,75,76,78,79,80,82,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103]
+    pts1 = np.array(face_lms, dtype = np.float)
+    pts1 = pts1.reshape((106, 2))
+    pts = np.zeros((68,2)) # map 106 to 68
+    for ii in range(len(map)):
+        if isinstance(map[ii],list):
+            pts[ii] = np.mean(pts1[map[ii]], axis=0)
+        else:
+            pts[ii] = pts1[map[ii]]
+    return pts

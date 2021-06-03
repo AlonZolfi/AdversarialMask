@@ -8,7 +8,7 @@ def render_cy_pt(vertices, new_colors, triangles, b, h, w):
     return face_mask, new_image
 
 
-def render_texture_pt(vertices, colors, triangles, b, h, w, c = 3):
+def render_texture_pt(vertices, colors, triangles, b, h, w, c=3):
     ''' render mesh by z buffer
     Args:
         vertices: 3 x nver
@@ -19,23 +19,27 @@ def render_texture_pt(vertices, colors, triangles, b, h, w, c = 3):
     '''
     # initial
     # image = torch.zeros((h, w, c))
-    image1 = torch.zeros((h, w, c))
+    # image1 = torch.zeros((h, w, c))
+    image2 = torch.zeros((h, w, c))
 
     # depth_buffer = torch.zeros([h, w]) - 999999.
     depth_buffer1 = torch.zeros([h, w]) - 999999.
     # triangle depth: approximate the depth to the average value of z in each vertex(v0, v1, v2), since the vertices are closed to each other
-    tri_depth = (vertices[2, triangles[0,:]] + vertices[2,triangles[1,:]] + vertices[2, triangles[2,:]])/3.
-    tri_tex = (colors[:, triangles[0, :]] + colors[:,triangles[1, :]] + colors[:, triangles[2, :]])/3.
+    tri_depth = (vertices[2, triangles[0, :]] + vertices[2, triangles[1, :]] + vertices[2, triangles[2, :]]) / 3.
+    tri_tex = (colors[:, triangles[0, :]] + colors[:, triangles[1, :]] + colors[:, triangles[2, :]]) / 3.
 
     for i in range(triangles.shape[1]):
-        tri = triangles[:, i] # 3 vertex indices
+        tri = triangles[:, i]  # 3 vertex indices
 
         # the inner bounding box
         umin = max(int(torch.ceil(torch.min(vertices[0, tri]))), 0)
+        # umin = torch.max(torch.ceil(torch.min(vertices[0, triangles], dim=0)[0]).type(torch.long), torch.tensor(0, dtype=torch.long))
         umax = min(int(torch.floor(torch.max(vertices[0, tri]))), w-1)
-
+        # umax = torch.min(torch.floor(torch.max(vertices[0, triangles], dim=0)[0]).type(torch.long), torch.tensor(w-1, dtype=torch.long))
         vmin = max(int(torch.ceil(torch.min(vertices[1, tri]))), 0)
+        # vmin = torch.max(torch.ceil(torch.min(vertices[1, triangles], dim=0)[0]).type(torch.long), torch.tensor(0, dtype=torch.long))
         vmax = min(int(torch.floor(torch.max(vertices[1, tri]))), h-1)
+        # vmax = torch.min(torch.floor(torch.max(vertices[1, triangles], dim=0)[0]).type(torch.long), torch.tensor(h-1, dtype=torch.long))
 
         if umax < umin or vmax < vmin:
             continue
@@ -43,10 +47,16 @@ def render_texture_pt(vertices, colors, triangles, b, h, w, c = 3):
         uv_vector = torch.cartesian_prod(torch.arange(umin, umax+1), torch.arange(vmin, vmax+1))
         condition = (tri_depth[i] > depth_buffer1[vmin:vmax+1, umin:umax+1]) & \
                     (arePointsInTri_pt(uv_vector, vertices[:2, tri].unsqueeze(0), umax-umin+1, vmax-vmin+1))
-        depth_buffer1[vmin:vmax+1, umin:umax+1] = torch.where(condition, tri_depth[i].repeat(condition.shape), depth_buffer1[vmin:vmax+1, umin:umax+1])
-        for j in range(image1.shape[-1]):
-            image1[vmin:vmax+1, umin:umax+1, j] = torch.where(condition, tri_tex[j, i].repeat(condition.shape), image1[vmin:vmax+1, umin:umax+1, j])
+        depth_buffer1[vmin:vmax+1, umin:umax+1] = torch.where(condition,
+                                                              tri_depth[i].repeat(condition.shape),
+                                                              depth_buffer1[vmin:vmax+1, umin:umax+1])
+        image2[vmin:vmax + 1, umin:umax + 1, :] = torch.where(condition.unsqueeze(-1).repeat(1, 1, c),
+                                                              tri_tex[:, i].repeat(condition.shape).view(condition.shape[0], condition.shape[1], -1),
+                                                              image2[vmin:vmax + 1, umin:umax + 1, :])
+        # for j in range(image1.shape[-1]):
+        #     image1[vmin:vmax+1, umin:umax+1, j] = torch.where(condition, tri_tex[j, i].repeat(condition.shape), image1[vmin:vmax+1, umin:umax+1, j])
 
+        # assert (~torch.eq(image1, image2)).sum() == 0
         # for u in range(umin, umax+1):
         #     for v in range(vmin, vmax+1):
         #         if tri_depth[i] > depth_buffer[v, u] and isPointInTri_pt(torch.tensor([u, v]), vertices[:2, tri]):
@@ -56,7 +66,7 @@ def render_texture_pt(vertices, colors, triangles, b, h, w, c = 3):
         #     print('depth')
         # if torch.abs( image1[vmin:vmax+1, umin:umax+1] -  image[vmin:vmax+1, umin:umax+1]).sum() > 0:
         #     print('image')
-    return image1
+    return image2
 
 
 def arePointsInTri_pt(points, tri_points, u_range, v_range):

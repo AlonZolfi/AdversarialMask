@@ -319,6 +319,7 @@ class FaceXZooProjector(nn.Module):
                                 torch.ones_like(face_mask),
                                 torch.zeros_like(face_mask)).unsqueeze(0)
         new_image = img_batch * (1 - face_mask.permute(0, 3, 1, 2)) + (new_image * face_mask).permute(0, 3, 1, 2)
+        # new_image = img_batch * (1 - face_mask) + new_image * face_mask
         new_image = torch.clamp(new_image, 0, 1)  # must clip to (-1, 1)!
         transforms.ToPILImage()(new_image.squeeze(0)).show()
         return new_image

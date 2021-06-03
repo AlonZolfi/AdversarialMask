@@ -28,30 +28,43 @@ def render_texture_pt(vertices, colors, triangles, device, b, h, w, c = 3):
     tri_depth = (vertices[2, triangles[0, :]] + vertices[2, triangles[1, :]] + vertices[2, triangles[2, :]]) / 3.
     tri_tex = (colors[:, triangles[0, :]] + colors[:, triangles[1, :]] + colors[:, triangles[2, :]]) / 3.
 
-    for i in range(triangles.shape[1]):
-        tri = triangles[:, i]  # 3 vertex indices
+    umin = torch.max(torch.ceil(torch.min(vertices[0, triangles], dim=0)[0]).type(torch.int), torch.tensor(0, dtype=torch.int))
+    umax = torch.min(torch.floor(torch.max(vertices[0, triangles], dim=0)[0]).type(torch.int), torch.tensor(w-1, dtype=torch.int))
+    vmin = torch.max(torch.ceil(torch.min(vertices[1, triangles], dim=0)[0]).type(torch.int), torch.tensor(0, dtype=torch.int))
+    vmax = torch.min(torch.floor(torch.max(vertices[1, triangles], dim=0)[0]).type(torch.int), torch.tensor(h-1, dtype=torch.int))
+
+    mask = (umin <= umax) & (vmin <= vmax)
+    indices = torch.masked_select(torch.stack([umin, umax, vmin, vmax]), mask).view(4, -1)
+    new_triangles = torch.masked_select(triangles, mask).view(3, -1)
+    new_tri_depth = torch.masked_select(tri_depth, mask)
+    new_tri_tex = torch.masked_select(tri_tex, mask).view(c, -1)
+    # for i in range(triangles.shape[1]):
+    for i in range(indices.shape[1]):
+        # tri = triangles[:, i]  # 3 vertex indices
+        tri = new_triangles[:, i]  # 3 vertex indices
 
         # the inner bounding box
-        umin = max(int(torch.ceil(torch.min(vertices[0, tri]))), 0)
-        # umin = torch.max(torch.ceil(torch.min(vertices[0, triangles], dim=0)[0]).type(torch.long), torch.tensor(0, dtype=torch.long))
-        umax = min(int(torch.floor(torch.max(vertices[0, tri]))), w-1)
-        # umax = torch.min(torch.floor(torch.max(vertices[0, triangles], dim=0)[0]).type(torch.long), torch.tensor(w-1, dtype=torch.long))
-        vmin = max(int(torch.ceil(torch.min(vertices[1, tri]))), 0)
-        # vmin = torch.max(torch.ceil(torch.min(vertices[1, triangles], dim=0)[0]).type(torch.long), torch.tensor(0, dtype=torch.long))
-        vmax = min(int(torch.floor(torch.max(vertices[1, tri]))), h-1)
-        # vmax = torch.min(torch.floor(torch.max(vertices[1, triangles], dim=0)[0]).type(torch.long), torch.tensor(h-1, dtype=torch.long))
+        # umin = max(int(torch.ceil(torch.min(vertices[0, tri]))), 0)
+        # umax = min(int(torch.floor(torch.max(vertices[0, tri]))), w-1)
+        # vmin = max(int(torch.ceil(torch.min(vertices[1, tri]))), 0)
+        # vmax = min(int(torch.floor(torch.max(vertices[1, tri]))), h-1)
+        #
+        # if umax < umin or vmax < vmin:
+        #     continue
 
-        if umax < umin or vmax < vmin:
-            continue
-
+        # uv_vector = torch.cartesian_prod(torch.arange(umin, umax+1, device=device), torch.arange(vmin, vmax+1, device=device))
+        umin = indices[0, i].item()
+        umax = indices[1, i].item()
+        vmin = indices[2, i].item()
+        vmax = indices[3, i].item()
         uv_vector = torch.cartesian_prod(torch.arange(umin, umax+1, device=device), torch.arange(vmin, vmax+1, device=device))
-        condition = (tri_depth[i] > depth_buffer1[vmin:vmax+1, umin:umax+1]) & \
+        condition = (new_tri_depth[i] > depth_buffer1[vmin:vmax+1, umin:umax+1]) & \
                     (arePointsInTri_pt(uv_vector, vertices[:2, tri].unsqueeze(0), umax-umin+1, vmax-vmin+1))
         depth_buffer1[vmin:vmax+1, umin:umax+1] = torch.where(condition,
-                                                              tri_depth[i].repeat(condition.shape),
+                                                              new_tri_depth[i].repeat(condition.shape),
                                                               depth_buffer1[vmin:vmax+1, umin:umax+1])
         image2[vmin:vmax + 1, umin:umax + 1, :] = torch.where(condition.unsqueeze(-1).repeat(1, 1, c),
-                                                              tri_tex[:, i].repeat(condition.shape).view(condition.shape[0], condition.shape[1], -1),
+                                                              new_tri_tex[:, i].repeat(condition.shape).view(condition.shape[0], condition.shape[1], -1),
                                                               image2[vmin:vmax + 1, umin:umax + 1, :])
         # for j in range(image1.shape[-1]):
         #     image1[vmin:vmax+1, umin:umax+1, j] = torch.where(condition, tri_tex[j, i].repeat(condition.shape), image1[vmin:vmax+1, umin:umax+1, j])

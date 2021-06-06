@@ -304,8 +304,8 @@ class FaceXZooProjector(nn.Module):
         self.patch_size_width = patch_size[1]
         self.patch_size_height = patch_size[0]
         self.device = device
-        self.uv_mask_src = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L')).to(self.device)
-        self.triangles = torch.from_numpy(np.loadtxt('../prnet/triangles.txt').astype(np.int64)).T.to(self.device)
+        self.uv_mask_src = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L')).to(device)
+        self.triangles = torch.from_numpy(np.loadtxt('../prnet/triangles.txt').astype(np.int64)).T.to(device)
 
     def forward(self, img_batch, landmarks, adv_patch):
         ref_texture_src = adv_patch
@@ -326,7 +326,7 @@ class FaceXZooProjector(nn.Module):
         new_image = img_batch * (1 - face_mask.permute(0, 3, 1, 2)) + (new_image * face_mask).permute(0, 3, 1, 2)
         # new_image = img_batch * (1 - face_mask) + new_image * face_mask
         new_image = torch.clamp(new_image, 0, 1)  # must clip to (-1, 1)!
-        transforms.ToPILImage()(new_image.squeeze(0)).show()
+        # transforms.ToPILImage()(new_image.squeeze(0)).show()
         return new_image
 
     def get_vertices(self, face_lms, image):
@@ -355,8 +355,6 @@ class PRN:
         self.net.load_state_dict(torch.load(model_path))
         self.device = device
         self.net.to(device).eval()
-        if torch.cuda.is_available():
-            self.net = self.net.to(device)
 
     def get_bbox_annot(self, image_info):
         left, _ = torch.min(image_info[..., 0], dim=1)

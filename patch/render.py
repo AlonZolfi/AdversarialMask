@@ -24,6 +24,7 @@ def render_texture_pt(vertices, colors, triangles, device, b, h, w, c = 3):
 
     # depth_buffer = torch.zeros([h, w]) - 999999.
     depth_buffer1 = torch.zeros([h, w], device=device) - 999999.
+    # depth_buffer2 = torch.zeros([h, w], device=device) - 999999.
     # triangle depth: approximate the depth to the average value of z in each vertex(v0, v1, v2), since the vertices are closed to each other
     tri_depth = (vertices[2, triangles[0, :]] + vertices[2, triangles[1, :]] + vertices[2, triangles[2, :]]) / 3.
     tri_tex = (colors[:, triangles[0, :]] + colors[:, triangles[1, :]] + colors[:, triangles[2, :]]) / 3.
@@ -34,51 +35,49 @@ def render_texture_pt(vertices, colors, triangles, device, b, h, w, c = 3):
     vmax = torch.min(torch.floor(torch.max(vertices[1, triangles], dim=0)[0]).type(torch.int), torch.tensor(h-1, dtype=torch.int))
 
     mask = (umin <= umax) & (vmin <= vmax)
-    indices = torch.masked_select(torch.stack([umin, umax, vmin, vmax]), mask).view(4, -1)
-    new_triangles = torch.masked_select(triangles, mask).view(3, -1)
+    bboxes = torch.masked_select(torch.stack([umin, umax, vmin, vmax]), mask).view(4, -1).T
+    # points = torch.cartesian_prod(torch.arange(0, h, device=device), torch.arange(0, w, device=device)).unsqueeze(0).repeat(bboxes.shape[0], 1, 1)
+    # c1 = (points[:, 0] >= bboxes[:, 0]).type(torch.int)
+    # c2 = (points[:, 0] <= bboxes[:, 1]).type(torch.int)
+    # c3 = (points[:, 1] >= bboxes[:, 2]).type(torch.int)
+    # c4 = (points[:, 1] <= bboxes[:, 3]).type(torch.int)
+
+    # indices = torch.masked_select(torch.stack([umin, umax, vmin, vmax]), mask).view(4, -1)
+    # points = torch.cartesian_prod(torch.arange(0, h, device=device), torch.arange(0, w, device=device))
+    # old_points = points
+    # points = points.unsqueeze(1)
+    # points = points.repeat(1, bboxes.shape[0], 1)
+    # c2 = (points[:, :, 0] >= bboxes[:, 0]).type(torch.int)
+    # c1 = (points[:, :, 0] <= bboxes[:, 1]).type(torch.int)
+    # c4 = (points[:, :, 1] >= bboxes[:, 2]).type(torch.int)
+    # c3 = (points[:, :, 1] <= bboxes[:, 3]).type(torch.int)
+    #
+    # mask = c1 + c2 + c3 + c4
+    # mask = torch.nonzero((mask == 4).sum(dim=-1)).squeeze()
+
+    # new_triangles = torch.masked_select(triangles, mask).view(3, -1)
     new_tri_depth = torch.masked_select(tri_depth, mask)
     new_tri_tex = torch.masked_select(tri_tex, mask).view(c, -1)
-    # for i in range(triangles.shape[1]):
-    for i in range(indices.shape[1]):
-        # tri = triangles[:, i]  # 3 vertex indices
-        tri = new_triangles[:, i]  # 3 vertex indices
 
-        # the inner bounding box
-        # umin = max(int(torch.ceil(torch.min(vertices[0, tri]))), 0)
-        # umax = min(int(torch.floor(torch.max(vertices[0, tri]))), w-1)
-        # vmin = max(int(torch.ceil(torch.min(vertices[1, tri]))), 0)
-        # vmax = min(int(torch.floor(torch.max(vertices[1, tri]))), h-1)
-        #
-        # if umax < umin or vmax < vmin:
-        #     continue
-
-        # uv_vector = torch.cartesian_prod(torch.arange(umin, umax+1, device=device), torch.arange(vmin, vmax+1, device=device))
-        umin = indices[0, i].item()
-        umax = indices[1, i].item()
-        vmin = indices[2, i].item()
-        vmax = indices[3, i].item()
-        uv_vector = torch.cartesian_prod(torch.arange(umin, umax+1, device=device), torch.arange(vmin, vmax+1, device=device))
-        condition = (new_tri_depth[i] > depth_buffer1[vmin:vmax+1, umin:umax+1]) & \
-                    (arePointsInTri_pt(uv_vector, vertices[:2, tri].unsqueeze(0), umax-umin+1, vmax-vmin+1))
+    # depth_buffer2[depth_buffer2] =
+    for i in range(bboxes.shape[0]):
+        umin = bboxes[i, 0].item()
+        umax = bboxes[i, 1].item()
+        vmin = bboxes[i, 2].item()
+        vmax = bboxes[i, 3].item()
+        # uv_vector = torch.cartesian_prod(torch.arange(umin, umax+1, device=device),
+        #                                  torch.arange(vmin, vmax+1, device=device))
+        condition = (new_tri_depth[i] > depth_buffer1[vmin:vmax+1, umin:umax+1])
+        # condition = (new_tri_depth[i] > depth_buffer1[vmin:vmax+1, umin:umax+1]) & \
+        #             (arePointsInTri_pt(uv_vector, vertices[:2, new_triangles[:, i]].unsqueeze(0), umax-umin+1, vmax-vmin+1))
         depth_buffer1[vmin:vmax+1, umin:umax+1] = torch.where(condition,
                                                               new_tri_depth[i].repeat(condition.shape),
                                                               depth_buffer1[vmin:vmax+1, umin:umax+1])
+
         image2[vmin:vmax + 1, umin:umax + 1, :] = torch.where(condition.unsqueeze(-1).repeat(1, 1, c),
                                                               new_tri_tex[:, i].repeat(condition.shape).view(condition.shape[0], condition.shape[1], -1),
                                                               image2[vmin:vmax + 1, umin:umax + 1, :])
-        # for j in range(image1.shape[-1]):
-        #     image1[vmin:vmax+1, umin:umax+1, j] = torch.where(condition, tri_tex[j, i].repeat(condition.shape), image1[vmin:vmax+1, umin:umax+1, j])
 
-        # assert (~torch.eq(image1, image2)).sum() == 0
-        # for u in range(umin, umax+1):
-        #     for v in range(vmin, vmax+1):
-        #         if tri_depth[i] > depth_buffer[v, u] and isPointInTri_pt(torch.tensor([u, v]), vertices[:2, tri]):
-        #             depth_buffer[v, u] = tri_depth[i]
-        #             image[v, u, :] = tri_tex[:, i]
-        # if torch.abs( depth_buffer1[vmin:vmax+1, umin:umax+1] -  depth_buffer[vmin:vmax+1, umin:umax+1]).sum() > 0:
-        #     print('depth')
-        # if torch.abs( image1[vmin:vmax+1, umin:umax+1] -  image[vmin:vmax+1, umin:umax+1]).sum() > 0:
-        #     print('image')
     return image2
 
 

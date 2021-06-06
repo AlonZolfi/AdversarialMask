@@ -73,6 +73,11 @@ class TrainPatch:
         self.train_losses = []
         self.val_losses = []
 
+    def set_to_device(self):
+        self.patch_applier = self.patch_applier.to(device)
+        self.location_extractor = self.location_extractor.to(device)
+        self.fxz_projector = self.fxz_projector.to(device)
+
     def train(self):
         # adv_patch_cpu = torch.zeros((1, 3, 100, 100), dtype=torch.float32)
         adv_patch_cpu = self.get_patch()

@@ -62,7 +62,7 @@ class TrainPatch:
 
         self.embedder = load_embedder(self.config.embedder_name, self.config.embedder_weights_path, device)
 
-        self.patch_applier = PatchApplier(self.config.mask_points)
+        # self.patch_applier = PatchApplier(self.config.mask_points)
         self.location_extractor = LocationExtractor(device, self.config.img_size)
         # self.transformer = PatchTransformer(device, self.config.img_size, self.config.patch_size)
         # self.landmarks_applier = LandmarksApplier(self.config.mask_points)
@@ -70,13 +70,15 @@ class TrainPatch:
         self.fxz_projector = FaceXZooProjector(device, self.config.img_size, self.config.patch_size)
         self.cos_sim = CosineSimilarity()
 
+        self.set_to_device()
         self.train_losses = []
         self.val_losses = []
 
     def set_to_device(self):
-        self.patch_applier = self.patch_applier.to(device)
+        # self.patch_applier = self.patch_applier.to(device)
         self.location_extractor = self.location_extractor.to(device)
         self.fxz_projector = self.fxz_projector.to(device)
+        self.cos_sim = self.cos_sim.to(device)
 
     def train(self):
         # adv_patch_cpu = torch.zeros((1, 3, 100, 100), dtype=torch.float32)
@@ -102,7 +104,7 @@ class TrainPatch:
 
                 if i_batch + 1 == epoch_length:
                     self.save_losses(epoch_length, train_loss)
-                    val_loss = self.calc_validation(adv_patch_cpu, progress_bar, prog_bar_desc)
+                    val_loss = self.calc_validation(adv_patch_cpu)
                     prog_bar_desc += ', val-loss: {:.6}'
                     progress_bar.set_postfix_str(prog_bar_desc.format(train_loss, val_loss))
 
@@ -115,13 +117,11 @@ class TrainPatch:
     def get_patch(self):
         import random
         patch = torch.zeros((1, 3, self.config.patch_size[0], self.config.patch_size[1]), dtype=torch.float32)
-        for i in range(patch.size(2)):
-            patch[0,0,i,:] = random.randint(0,255)/255
-            patch[0,1,i,:] = random.randint(0,255)/255
-            patch[0,2,i,:] = random.randint(0,255)/255
-        # transforms.ToPILImage()(patch[0]).show()
+        for i in range(patch.size()[2]):
+            patch[0, 0, i, :] = random.randint(0, 255) / 255
+            patch[0, 1, i, :] = random.randint(0, 255) / 255
+            patch[0, 2, i, :] = random.randint(0, 255) / 255
         patch.requires_grad_(True)
-        # transforms.ToPILImage()(patch.squeeze(0)).save('patch.png')
         return patch
 
     def forward_step(self, img_batch, adv_patch_cpu):
@@ -142,13 +142,14 @@ class TrainPatch:
             loss = self.calc_loss(clean_emb, patch_emb)
             return loss
 
-    def calc_validation(self, adv_patch_cpu, progress_bar, prog_bar_desc):
+    def calc_validation(self, adv_patch_cpu):
         val_loss = 0.0
         with torch.no_grad():
             for i_batch, img_batch in self.val_loader:
                 loss = self.forward_step(img_batch, adv_patch_cpu)
                 val_loss += loss.item()
-        val_loss = val_loss/len(self.val_loader)
+        if len(self.val_loader) > 0:
+            val_loss = val_loss / len(self.val_loader)
         self.val_losses.append(val_loss)
 
         return val_loss

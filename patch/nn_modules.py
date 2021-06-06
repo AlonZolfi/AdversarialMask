@@ -322,11 +322,12 @@ class FaceXZooProjector(nn.Module):
                                                    self.device)
         face_mask = torch.where(torch.floor(face_mask) > 0,
                                 torch.ones_like(face_mask),
-                                torch.zeros_like(face_mask)).unsqueeze(0)
+                                torch.zeros_like(face_mask))
         new_image = img_batch * (1 - face_mask.permute(0, 3, 1, 2)) + (new_image * face_mask).permute(0, 3, 1, 2)
         # new_image = img_batch * (1 - face_mask) + new_image * face_mask
         new_image = torch.clamp(new_image, 0, 1)  # must clip to (-1, 1)!
-        transforms.ToPILImage()(new_image.squeeze(0)).show()
+        for i in range(new_image.shape[0]):
+            transforms.ToPILImage()(new_image[i]).show()
         return new_image
 
     def get_vertices(self, face_lms, image):

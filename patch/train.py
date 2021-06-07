@@ -109,6 +109,7 @@ class TrainPatch:
             progress_bar = tqdm(enumerate(self.train_loader), desc=f'Epoch {epoch}', total=epoch_length)
             prog_bar_desc = 'train-loss: {:.6}'
             for i_batch, img_batch in progress_bar:
+
                 loss = self.forward_step(img_batch, adv_patch_cpu)
 
                 train_loss += loss.item()
@@ -125,6 +126,8 @@ class TrainPatch:
                     self.save_losses(epoch_length, train_loss)
                     prog_bar_desc += ', val-loss: {:.6}'
                     progress_bar.set_postfix_str(prog_bar_desc.format(train_loss, self.val_losses[-1]))
+
+                torch.cuda.empty_cache()
 
             if early_stop(self.val_losses[-1], adv_patch_cpu, epoch):
                 self.final_epoch_count = epoch

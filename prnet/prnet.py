@@ -89,6 +89,7 @@ class ResBlock(nn.Module):
         out = self.relu(out)
         return out
 
+
 class PRNet(nn.Module):
     def __init__(self, in_channels=3, out_channels=3):
         super(PRNet, self).__init__()        

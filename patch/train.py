@@ -2,6 +2,10 @@ import sys
 import os
 import random
 import warnings
+import time
+import datetime
+from pathlib import Path
+import pickle
 
 import torch
 import numpy as np
@@ -9,10 +13,11 @@ from tqdm import tqdm
 from torchvision import transforms
 from torch.nn import CosineSimilarity, functional as F
 import torch.optim as optim
+import matplotlib.pyplot as plt
 
 from config import patch_config_types
 from nn_modules import PatchApplier, LocationExtractor, PatchTransformer, LandmarksApplier, Projector, ap, FaceXZooProjector
-from utils import SplitDataset, CustomDataset, CustomDataset1, load_embedder
+from utils import SplitDataset, CustomDataset, CustomDataset1, load_embedder, EarlyStopping
 
 global device
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -24,12 +29,12 @@ if sys.base_prefix.__contains__('home/zolfi'):
     os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
 
-def set_random_seed(seed_value, use_cuda=True):
+def set_random_seed(seed_value):
     np.random.seed(seed_value)
     torch.manual_seed(seed_value)
     random.seed(seed_value)
     os.environ['PYTHONHASHSEED'] = str(seed_value)
-    if use_cuda:
+    if torch.cuda.is_available():
         torch.cuda.manual_seed(seed_value)
         torch.cuda.manual_seed_all(seed_value)
         torch.backends.cudnn.deterministic = True
@@ -74,22 +79,35 @@ class TrainPatch:
         self.train_losses = []
         self.val_losses = []
 
+        my_date = datetime.datetime.now()
+        month_name = my_date.strftime("%B")
+        self.current_dir = "experiments/" + month_name + '/' + time.strftime("%d-%m-%Y") + '_' + time.strftime(
+            "%H-%M-%S")
+        self.create_folders()
+
     def set_to_device(self):
         # self.patch_applier = self.patch_applier.to(device)
         self.location_extractor = self.location_extractor.to(device)
         self.fxz_projector = self.fxz_projector.to(device)
         self.cos_sim = self.cos_sim.to(device)
 
+    def create_folders(self):
+        Path('/'.join(self.current_dir.split('/')[:2])).mkdir(parents=True, exist_ok=True)
+        Path(self.current_dir).mkdir(parents=True, exist_ok=True)
+        Path(self.current_dir + '/final_results').mkdir(parents=True, exist_ok=True)
+        Path(self.current_dir + '/saved_patches').mkdir(parents=True, exist_ok=True)
+        Path(self.current_dir + '/losses').mkdir(parents=True, exist_ok=True)
+
     def train(self):
-        # adv_patch_cpu = torch.zeros((1, 3, 100, 100), dtype=torch.float32)
         adv_patch_cpu = self.get_patch()
         optimizer = optim.Adam([adv_patch_cpu], lr=self.config.start_learning_rate, amsgrad=True)
         scheduler = self.config.scheduler_factory(optimizer)
+        early_stop = EarlyStopping(current_dir=self.current_dir)
         epoch_length = len(self.train_loader)
-        prog_bar_desc = 'train-loss: {:.6}, '
         for epoch in range(self.config.epochs):
             train_loss = 0.0
             progress_bar = tqdm(enumerate(self.train_loader), desc=f'Epoch {epoch}', total=epoch_length)
+            prog_bar_desc = 'train-loss: {:.6}'
             for i_batch, img_batch in progress_bar:
                 loss = self.forward_step(img_batch, adv_patch_cpu)
 
@@ -103,12 +121,18 @@ class TrainPatch:
                 progress_bar.set_postfix_str(prog_bar_desc.format(train_loss / (i_batch + 1)))
 
                 if i_batch + 1 == epoch_length:
-                    val_loss = self.calc_validation(adv_patch_cpu)
-                    self.save_losses(epoch_length, train_loss, val_loss)
+                    self.calc_validation(adv_patch_cpu)
+                    self.save_losses(epoch_length, train_loss)
                     prog_bar_desc += ', val-loss: {:.6}'
                     progress_bar.set_postfix_str(prog_bar_desc.format(train_loss, self.val_losses[-1]))
 
+            if early_stop(self.val_losses[-1], adv_patch_cpu, epoch):
+                self.final_epoch_count = epoch
+                break
+
             scheduler.step(self.val_losses[-1])
+        self.plot_train_val_loss()
+        self.save_final_objects(adv_patch_cpu)
 
     def calc_loss(self, clean_emb, patch_emb):
         distance = torch.mean(self.cos_sim(clean_emb, patch_emb))
@@ -148,14 +172,33 @@ class TrainPatch:
             for i_batch, img_batch in self.val_loader:
                 loss = self.forward_step(img_batch, adv_patch_cpu)
                 val_loss += loss.item()
-        if len(self.val_loader) > 0:
-            val_loss = val_loss / len(self.val_loader)
+        val_loss = val_loss / len(self.val_loader)
         self.val_losses.append(val_loss)
-        return val_loss
 
-    def save_losses(self, epoch_length, train_loss, val_loss):
+    def save_losses(self, epoch_length, train_loss):
         train_loss /= epoch_length
         self.train_losses.append(train_loss)
+
+    def plot_train_val_loss(self):
+        epochs = [x + 1 for x in range(len(self.train_losses))]
+        plt.plot(epochs, self.train_losses, 'b', label='Training loss')
+        plt.plot(epochs, self.val_losses, 'r', label='Validation loss')
+        plt.title('Training and validation loss')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.legend(loc='upper right')
+        plt.savefig(self.current_dir + '/final_results/train_val_loss_plt.png')
+        plt.close()
+
+    def save_final_objects(self, adv_patch):
+        transforms.ToPILImage()(adv_patch.squeeze(0)).save(
+            self.current_dir + '/final_results/final_patch.png', 'PNG')
+        torch.save(adv_patch, self.current_dir + '/final_results/final_patch_raw.pt')
+
+        with open(self.current_dir + '/losses/train_losses', 'wb') as fp:
+            pickle.dump(self.train_losses, fp)
+        with open(self.current_dir + '/losses/val_losses', 'wb') as fp:
+            pickle.dump(self.val_losses, fp)
 
 
 def main():

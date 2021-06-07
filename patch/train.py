@@ -103,10 +103,10 @@ class TrainPatch:
                 progress_bar.set_postfix_str(prog_bar_desc.format(train_loss / (i_batch + 1)))
 
                 if i_batch + 1 == epoch_length:
-                    self.save_losses(epoch_length, train_loss)
                     val_loss = self.calc_validation(adv_patch_cpu)
+                    self.save_losses(epoch_length, train_loss, val_loss)
                     prog_bar_desc += ', val-loss: {:.6}'
-                    progress_bar.set_postfix_str(prog_bar_desc.format(train_loss, val_loss))
+                    progress_bar.set_postfix_str(prog_bar_desc.format(train_loss, self.val_losses[-1]))
 
             scheduler.step(self.val_losses[-1])
 
@@ -151,10 +151,9 @@ class TrainPatch:
         if len(self.val_loader) > 0:
             val_loss = val_loss / len(self.val_loader)
         self.val_losses.append(val_loss)
-
         return val_loss
 
-    def save_losses(self, epoch_length, train_loss):
+    def save_losses(self, epoch_length, train_loss, val_loss):
         train_loss /= epoch_length
         self.train_losses.append(train_loss)
 

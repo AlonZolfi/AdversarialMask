@@ -12,7 +12,7 @@ class BaseConfiguration:
         self.img_size = (512, 512)
         self.patch_size = (256, 256)  # height, width
         self.batch_size = 2
-        self.epochs = 1
+        self.epochs = 10
         self.mask_points = [36, 4, 5, 6, 7, 8, 9, 10, 11, 12, 45]
         self.start_learning_rate = 1e-4
         self.scheduler_factory = lambda optimizer: optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min')

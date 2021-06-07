@@ -298,7 +298,7 @@ class ap(nn.Module):
 class FaceXZooProjector(nn.Module):
     def __init__(self, device, img_size, patch_size):
         super(FaceXZooProjector, self).__init__()
-        self.prn = PRN('../prnet/prnet.pth', device)
+        self.prn = PRN('../prnet/prnet.pth', device, patch_size[0])
         self.img_size_width = img_size[1]
         self.img_size_height = img_size[0]
         self.patch_size_width = patch_size[1]
@@ -323,11 +323,10 @@ class FaceXZooProjector(nn.Module):
         face_mask = torch.where(torch.floor(face_mask) > 0,
                                 torch.ones_like(face_mask),
                                 torch.zeros_like(face_mask))
-        new_image = img_batch * (1 - face_mask.permute(0, 3, 1, 2)) + (new_image * face_mask).permute(0, 3, 1, 2)
-        # new_image = img_batch * (1 - face_mask) + new_image * face_mask
+        new_image = img_batch * (1 - face_mask) + (new_image * face_mask)
         new_image = torch.clamp(new_image, 0, 1)  # must clip to (-1, 1)!
-        for i in range(new_image.shape[0]):
-            transforms.ToPILImage()(new_image[i]).show()
+        # for i in range(new_image.shape[0]):
+        #     transforms.ToPILImage()(new_image[i]).show()
         return new_image
 
     def get_vertices(self, face_lms, image):
@@ -347,8 +346,8 @@ class PRN:
     based on:
     https://github.com/YadiraF/PRNet/blob/master/api.py
     """
-    def __init__(self, model_path, device):
-        self.resolution = 256
+    def __init__(self, model_path, device, resolution):
+        self.resolution = resolution
         self.MaxPos = self.resolution * 1.1
         self.face_ind = np.loadtxt('../prnet/face_ind.txt').astype(np.int32)
         self.triangles = np.loadtxt('../prnet/triangles.txt').astype(np.int32)
@@ -420,3 +419,15 @@ def read_landmark_106_array(face_lms):
         else:
             pts[ii] = pts1[map[ii]]
     return pts
+
+
+class TotalVariation(nn.Module):
+    def __init__(self, weight) -> None:
+        super(TotalVariation, self).__init__()
+        self.weight = weight
+
+    def forward(self, adv_patch):
+        h_tv = F.l1_loss(adv_patch[:, :, 1:, :], adv_patch[:, :, :-1, :], reduction='mean')  # calc height tv
+        w_tv = F.l1_loss(adv_patch[:, :, :, 1:], adv_patch[:, :, :, :-1], reduction='mean')  # calc width tv
+        loss = h_tv + w_tv
+        return self.weight * loss

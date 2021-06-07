@@ -9,7 +9,7 @@ class BaseConfiguration:
         self.img_dir = os.path.join('..', 'datasets', self.dataset_name)
         self.lab_dir = os.path.join('..', 'datasets', self.dataset_name)
         self.max_labels_per_img = 1
-        self.img_size = (512, 512)
+        self.img_size = (112, 112)
         self.patch_size = (256, 256)  # height, width
         self.batch_size = 2
         self.epochs = 10

@@ -157,8 +157,8 @@ class TrainPatch:
             lab_batch, preds = self.location_extractor(img_batch)
             img_batch_applied = self.fxz_projector(img_batch, preds, adv_patch)
 
-            img_batch = F.interpolate(img_batch, size=112)
-            img_batch_applied = F.interpolate(img_batch_applied, size=112)
+            # img_batch = F.interpolate(img_batch, size=112)
+            # img_batch_applied = F.interpolate(img_batch_applied, size=112)
 
             clean_emb = self.embedder(img_batch)
             patch_emb = self.embedder(img_batch_applied)

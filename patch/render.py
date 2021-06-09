@@ -67,7 +67,6 @@ def render_texture_pt(vertices, colors, triangles, device, b, h, w, c = 3):
     image = torch.zeros((b, c, h, w), device=device)
     for i in range(b):
         bboxes = torch.masked_select(torch.stack([umins[i], umaxs[i], vmins[i], vmaxs[i]]), masks[i]).view(4, -1).T
-        print(bboxes.shape[0])
         points = torch.cartesian_prod(torch.arange(0, h, device=device),
                                       torch.arange(0, w, device=device))
         points = points.unsqueeze(1).repeat(1, bboxes.shape[0], 1)
@@ -75,14 +74,11 @@ def render_texture_pt(vertices, colors, triangles, device, b, h, w, c = 3):
         c2 = (points[:, :, 0] <= bboxes[:, 3])
         c3 = (points[:, :, 1] >= bboxes[:, 0])
         c4 = (points[:, :, 1] <= bboxes[:, 1])
-        del points, bboxes
-        torch.cuda.empty_cache()
         mask = (c1 & c2 & c3 & c4).view(h, w, -1)
 
         new_tri_depth = torch.masked_select(tri_depth[i], masks[i])
         deep_depth_buffer = torch.zeros([h, w, mask.shape[-1]], dtype=torch.int32, device=device) - 999999.
         dp = torch.where(mask, new_tri_depth, deep_depth_buffer).argmax(dim=-1)
-        del new_tri_depth, deep_depth_buffer
         new_tri_tex = torch.masked_select(tri_tex[i], masks[i]).view(c, -1)
         image[i] = torch.where((mask.sum(dim=-1) == 0), image[i], new_tri_tex.T[dp].permute(2, 0, 1))
         # new_triangles = torch.masked_select(triangles, masks[i]).view(3, -1)

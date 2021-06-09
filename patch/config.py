@@ -13,8 +13,9 @@ class BaseConfiguration:
         self.patch_size = (256, 256)  # height, width
         self.batch_size = 2
         self.epochs = 10
+        self.patch_type = 'l_stripes'
         self.mask_points = [36, 4, 5, 6, 7, 8, 9, 10, 11, 12, 45]
-        self.start_learning_rate = 1e-4
+        self.start_learning_rate = 1e-2
         self.scheduler_factory = lambda optimizer: optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min')
         self.embedder_name = 'arcface'
         self.embedder_weights_path = os.path.join('..', 'arcface_torch', 'weights', 'arcface_resnet100.pth')

@@ -11,17 +11,17 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from torchvision import transforms
-from torch.nn import CosineSimilarity, functional as F
+from torch.nn import CosineSimilarity
 import torch.optim as optim
 import matplotlib.pyplot as plt
 
 from config import patch_config_types
-from nn_modules import PatchApplier, LocationExtractor, PatchTransformer, LandmarksApplier, Projector, ap, FaceXZooProjector
+from nn_modules import LocationExtractor, FaceXZooProjector
 from utils import SplitDataset, CustomDataset, CustomDataset1, load_embedder, EarlyStopping
 
 global device
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-print(device)
+print('device is {}'.format(device))
 
 if sys.base_prefix.__contains__('home/zolfi'):
     sys.path.append('/home/zolfi/AdversarialMask/patch')
@@ -66,12 +66,11 @@ class TrainPatch:
             batch_size=self.config.batch_size)
 
         self.embedder = load_embedder(self.config.embedder_name, self.config.embedder_weights_path, device)
-
         # self.patch_applier = PatchApplier(self.config.mask_points)
-        self.location_extractor = LocationExtractor(device, self.config.img_size)
         # self.transformer = PatchTransformer(device, self.config.img_size, self.config.patch_size)
         # self.landmarks_applier = LandmarksApplier(self.config.mask_points)
 
+        self.location_extractor = LocationExtractor(device, self.config.img_size)
         self.fxz_projector = FaceXZooProjector(device, self.config.img_size, self.config.patch_size)
         self.cos_sim = CosineSimilarity()
 
@@ -84,9 +83,9 @@ class TrainPatch:
         self.current_dir = "experiments/" + month_name + '/' + time.strftime("%d-%m-%Y") + '_' + time.strftime(
             "%H-%M-%S")
         self.create_folders()
+        self.target_embedding = self.get_person_embedding()
 
     def set_to_device(self):
-        # self.patch_applier = self.patch_applier.to(device)
         self.location_extractor = self.location_extractor.to(device)
         self.fxz_projector = self.fxz_projector.to(device)
         self.cos_sim = self.cos_sim.to(device)
@@ -99,7 +98,7 @@ class TrainPatch:
         Path(self.current_dir + '/losses').mkdir(parents=True, exist_ok=True)
 
     def train(self):
-        adv_patch_cpu = self.get_patch()
+        adv_patch_cpu = self.get_patch(self.config.patch_type)
         optimizer = optim.Adam([adv_patch_cpu], lr=self.config.start_learning_rate, amsgrad=True)
         scheduler = self.config.scheduler_factory(optimizer)
         early_stop = EarlyStopping(current_dir=self.current_dir)
@@ -109,7 +108,6 @@ class TrainPatch:
             progress_bar = tqdm(enumerate(self.train_loader), desc=f'Epoch {epoch}', total=epoch_length)
             prog_bar_desc = 'train-loss: {:.6}'
             for i_batch, img_batch in progress_bar:
-
                 loss = self.forward_step(img_batch, adv_patch_cpu)
 
                 train_loss += loss.item()
@@ -125,7 +123,7 @@ class TrainPatch:
                     self.calc_validation(adv_patch_cpu)
                     self.save_losses(epoch_length, train_loss)
                     prog_bar_desc += ', val-loss: {:.6}'
-                    progress_bar.set_postfix_str(prog_bar_desc.format(train_loss, self.val_losses[-1]))
+                    progress_bar.set_postfix_str(prog_bar_desc.format(self.train_losses[-1], self.val_losses[-1]))
 
                 torch.cuda.empty_cache()
 
@@ -137,17 +135,27 @@ class TrainPatch:
         self.plot_train_val_loss()
         self.save_final_objects(adv_patch_cpu)
 
-    def calc_loss(self, clean_emb, patch_emb):
-        distance = torch.mean(self.cos_sim(clean_emb, patch_emb))
+    def calc_loss(self, patch_emb):
+        distance = torch.mean(1 - self.cos_sim(self.target_embedding, patch_emb))
+        # distance = torch.mean(self.cos_sim(clean_emb, patch_emb))
         return distance
 
-    def get_patch(self):
-        import random
-        patch = torch.zeros((1, 3, self.config.patch_size[0], self.config.patch_size[1]), dtype=torch.float32)
-        for i in range(patch.size()[2]):
-            patch[0, 0, i, :] = random.randint(0, 255) / 255
-            patch[0, 1, i, :] = random.randint(0, 255) / 255
-            patch[0, 2, i, :] = random.randint(0, 255) / 255
+    def get_patch(self, p_type):
+        if p_type == 'stripes':
+            patch = torch.zeros((1, 3, self.config.patch_size[0], self.config.patch_size[1]), dtype=torch.float32)
+            for i in range(patch.size()[2]):
+                patch[0, 0, i, :] = random.randint(0, 255) / 255
+                patch[0, 1, i, :] = random.randint(0, 255) / 255
+                patch[0, 2, i, :] = random.randint(0, 255) / 255
+        elif p_type =='l_stripes':
+            patch = torch.zeros((1, 3, self.config.patch_size[0], self.config.patch_size[1]), dtype=torch.float32)
+            for i in range(int(patch.size()[2]/64)):
+                patch[0, 0, int(patch.size()[2]/4)*i:int(patch.size()[2]/4)*(i+1), :] = random.randint(0, 255) / 255
+                patch[0, 1, int(patch.size()[2]/4)*i:int(patch.size()[2]/4)*(i+1), :] = random.randint(0, 255) / 255
+                patch[0, 2, int(patch.size()[2]/4)*i:int(patch.size()[2]/4)*(i+1), :] = random.randint(0, 255) / 255
+        elif p_type == 'random':
+            patch = torch.rand((1, 3, self.config.patch_size[0], self.config.patch_size[1]), dtype=torch.float32)
+        transforms.ToPILImage()(patch.squeeze(0)).show()
         patch.requires_grad_(True)
         return patch
 
@@ -163,16 +171,17 @@ class TrainPatch:
             # img_batch = F.interpolate(img_batch, size=112)
             # img_batch_applied = F.interpolate(img_batch_applied, size=112)
 
-            clean_emb = self.embedder(img_batch)
+            # clean_emb = self.embedder(img_batch)
             patch_emb = self.embedder(img_batch_applied)
 
-            loss = self.calc_loss(clean_emb, patch_emb)
+            loss = self.calc_loss(patch_emb)
+            # loss = self.calc_loss(patch_emb)
             return loss
 
     def calc_validation(self, adv_patch_cpu):
         val_loss = 0.0
         with torch.no_grad():
-            for i_batch, img_batch in self.val_loader:
+            for img_batch in self.val_loader:
                 loss = self.forward_step(img_batch, adv_patch_cpu)
                 val_loss += loss.item()
         val_loss = val_loss / len(self.val_loader)
@@ -202,6 +211,14 @@ class TrainPatch:
             pickle.dump(self.train_losses, fp)
         with open(self.current_dir + '/losses/val_losses', 'wb') as fp:
             pickle.dump(self.val_losses, fp)
+
+    def get_person_embedding(self):
+        with torch.no_grad():
+            person_embeddings = torch.empty(0, device=device)
+            for img_batch in self.train_loader:
+                embedding = self.embedder(img_batch)
+                person_embeddings = torch.cat([person_embeddings, embedding], dim=0)
+            return person_embeddings.mean(dim=0).unsqueeze(0)
 
 
 def main():

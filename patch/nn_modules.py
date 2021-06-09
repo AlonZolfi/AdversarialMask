@@ -178,19 +178,8 @@ class LocationExtractor(nn.Module):
     def forward(self, img_batch):
         points = self.face_align.get_landmarks_from_batch(img_batch * 255)
         single_face_points = [landmarks[:68] for landmarks in points]
-        # preds = np.array(single_face_points)
-        # preds[..., 0] /= self.img_size_width
-        # preds[..., 1] /= self.img_size_height
-        # x_center = torch.from_numpy(preds[:, 2, 0]+(np.abs(preds[:, 14, 0] - preds[:, 2, 0])/2))
-        # y_center = torch.from_numpy(preds[:, 29, 1]+(np.abs(preds[:, 8, 1] - preds[:, 29, 1])/2))
-        # width = torch.abs(torch.from_numpy(preds[:, 14, 0] - preds[:, 2, 0]))
-        # height = torch.abs(torch.from_numpy(preds[:, 29, 1] - preds[:, 8, 1]))
-        # lab_batch = torch.stack([torch.zeros_like(x_center), x_center, y_center, width, height], dim=1)
-        # lab_batch = lab_batch.unsqueeze(1)
-        # preds = torch.from_numpy(np.array(single_face_points))
-        lab_batch = None
         preds = torch.tensor(single_face_points, device=self.device)
-        return lab_batch, preds
+        return preds
 
 
 class Projector(nn.Module):
@@ -308,11 +297,12 @@ class FaceXZooProjector(nn.Module):
         self.triangles = torch.from_numpy(np.loadtxt('../prnet/triangles.txt').astype(np.int64)).T.to(device)
 
     def forward(self, img_batch, landmarks, adv_patch):
-        ref_texture_src = adv_patch
         pos, vertices = self.get_vertices(landmarks, img_batch)
         texture = kornia.geometry.remap(img_batch, map_x=pos[:, 0], map_y=pos[:, 1], mode='nearest')
-        new_texture = texture * (1 - self.uv_mask_src) + ref_texture_src * self.uv_mask_src
+        new_texture = texture * (1 - self.uv_mask_src) + adv_patch * self.uv_mask_src
         new_colors = self.prn.get_colors_from_texture(new_texture)
+        del new_texture, texture, pos
+        torch.cuda.empty_cache()
         face_mask, new_image = render.render_cy_pt(vertices,
                                                    new_colors,
                                                    self.triangles,
@@ -325,8 +315,8 @@ class FaceXZooProjector(nn.Module):
                                 torch.zeros_like(face_mask))
         new_image = img_batch * (1 - face_mask) + (new_image * face_mask)
         new_image = torch.clamp(new_image, 0, 1)  # must clip to (-1, 1)!
-        # for i in range(new_image.shape[0]):
-        #     transforms.ToPILImage()(new_image[i]).show()
+        for i in range(new_image.shape[0]):
+            transforms.ToPILImage()(new_image[i]).show()
         return new_image
 
     def get_vertices(self, face_lms, image):

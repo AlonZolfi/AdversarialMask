@@ -2,10 +2,10 @@ import torch
 
 
 def render_cy_pt(vertices, new_colors, triangles, b, h, w, device):
-    vis_colors = torch.ones((b, 1, vertices.shape[-1]), device=device)
-    # vis_colors = torch.ones((1, vertices.shape[-1]), device=device)
     new_image = render_texture_pt(vertices, new_colors, triangles, device, b, h, w, 3)
     # new_image = render_texture_pt(vertices.squeeze(0), new_colors.squeeze(0), triangles, device, b, h, w, 3)
+    # vis_colors = torch.ones((1, vertices.shape[-1]), device=device)
+    vis_colors = torch.ones((b, 1, vertices.shape[-1]), device=device)
     face_mask = render_texture_pt(vertices, vis_colors, triangles, device, b, h, w, 1)
     # face_mask = render_texture_pt(vertices.squeeze(0), vis_colors, triangles, device, b, h, w, 1)
     return face_mask, new_image
@@ -67,20 +67,41 @@ def render_texture_pt(vertices, colors, triangles, device, b, h, w, c = 3):
     image = torch.zeros((b, c, h, w), device=device)
     for i in range(b):
         bboxes = torch.masked_select(torch.stack([umins[i], umaxs[i], vmins[i], vmaxs[i]]), masks[i]).view(4, -1).T
+        old_bboxes_size = bboxes.shape[0]
+        bboxes_unique, uni_idx = torch.unique(bboxes, dim=0, return_inverse=True)
+        del bboxes
+        torch.cuda.empty_cache()
+
         points = torch.cartesian_prod(torch.arange(0, h, device=device),
                                       torch.arange(0, w, device=device))
-        points = points.unsqueeze(1).repeat(1, bboxes.shape[0], 1)
-        c1 = (points[:, :, 0] >= bboxes[:, 2])
-        c2 = (points[:, :, 0] <= bboxes[:, 3])
-        c3 = (points[:, :, 1] >= bboxes[:, 0])
-        c4 = (points[:, :, 1] <= bboxes[:, 1])
-        mask = (c1 & c2 & c3 & c4).view(h, w, -1)
+        points = points.unsqueeze(1).repeat(1, bboxes_unique.shape[0], 1)
+        c1 = (points[:, :, 0] >= bboxes_unique[:, 2])
+        c2 = (points[:, :, 0] <= bboxes_unique[:, 3])
+        c3 = (points[:, :, 1] >= bboxes_unique[:, 0])
+        c4 = (points[:, :, 1] <= bboxes_unique[:, 1])
+        del points
+        torch.cuda.empty_cache()
 
+        mask = (c1 & c2 & c3 & c4).view(h, w, -1)
+        del c1, c2, c3, c4
+        torch.cuda.empty_cache()
+
+        x = ((torch.zeros((old_bboxes_size, bboxes_unique.shape[0]), dtype=torch.int32, device=device)) +
+             torch.arange(0, bboxes_unique.shape[0], dtype=torch.int32, device=device)).T
+        x = torch.where(x == uni_idx, torch.ones(1, device=device), torch.zeros(1, device=device))
         new_tri_depth = torch.masked_select(tri_depth[i], masks[i])
+        new_tri_depth = (x * new_tri_depth).max(dim=1)[0]
+
         deep_depth_buffer = torch.zeros([h, w, mask.shape[-1]], dtype=torch.int32, device=device) - 999999.
         dp = torch.where(mask, new_tri_depth, deep_depth_buffer).argmax(dim=-1)
+        del new_tri_depth, deep_depth_buffer
+        torch.cuda.empty_cache()
+
         new_tri_tex = torch.masked_select(tri_tex[i], masks[i]).view(c, -1)
+        new_tri_tex = (x.unsqueeze(-1) * new_tri_tex.T).max(dim=1)[0].T
         image[i] = torch.where((mask.sum(dim=-1) == 0), image[i], new_tri_tex.T[dp].permute(2, 0, 1))
+        del new_tri_tex
+        torch.cuda.empty_cache()
         # new_triangles = torch.masked_select(triangles, masks[i]).view(3, -1)
 
         '''for j in range(bboxes.shape[0]):
@@ -102,6 +123,54 @@ def render_texture_pt(vertices, colors, triangles, device, b, h, w, c = 3):
                                                                      image2[i, vmin:vmax + 1, umin:umax + 1, :])
         print((depth_buffer == depth_buffer1[i]).all())
         print((image[i].permute(1,2,0) == image2[i]).all())'''
+    return image
+
+
+def render_texture_pt1(vertices, colors, triangles, device, b, h, w, c = 3):
+    ''' render mesh by z buffer
+    Args:
+        vertices: 3 x nver
+        colors: 3 x nver
+        triangles: 3 x ntri
+        h: height
+        w: width
+    '''
+
+    image = torch.zeros((b, c, h, w), device=device)
+    for i in range(b):
+        tri_depth = (vertices[i, 2, triangles[0, :]] + vertices[i, 2, triangles[1, :]] + vertices[i, 2, triangles[2, :]]) / 3.
+        tri_tex = (colors[i, :, triangles[0, :]] + colors[i, :, triangles[1, :]] + colors[i, :, triangles[2, :]]) / 3.
+        umins = torch.max(torch.ceil(torch.min(vertices[i, 0, triangles], dim=0)[0]).type(torch.int),
+                          torch.tensor(0, dtype=torch.int))
+        umaxs = torch.min(torch.floor(torch.max(vertices[i, 0, triangles], dim=0)[0]).type(torch.int),
+                          torch.tensor(w - 1, dtype=torch.int))
+        vmins = torch.max(torch.ceil(torch.min(vertices[i, 1, triangles], dim=0)[0]).type(torch.int),
+                          torch.tensor(0, dtype=torch.int))
+        vmaxs = torch.min(torch.floor(torch.max(vertices[i, 1, triangles], dim=0)[0]).type(torch.int),
+                          torch.tensor(h - 1, dtype=torch.int))
+        masks = (umins <= umaxs) & (vmins <= vmaxs)
+        bboxes = torch.masked_select(torch.stack([umins, umaxs, vmins, vmaxs]), masks).view(4, -1).T
+        points = torch.cartesian_prod(torch.arange(0, h, device=device),
+                                      torch.arange(0, w, device=device))
+        points = points.unsqueeze(1).repeat(1, bboxes.shape[0], 1)
+        c1 = (points[:, :, 0] >= bboxes[:, 2])
+        c2 = (points[:, :, 0] <= bboxes[:, 3])
+        c3 = (points[:, :, 1] >= bboxes[:, 0])
+        c4 = (points[:, :, 1] <= bboxes[:, 1])
+        del points, bboxes
+
+        mask = (c1 & c2 & c3 & c4).view(h, w, -1)
+        del c1, c2, c3, c4
+
+        new_tri_depth = torch.masked_select(tri_depth, masks)
+        deep_depth_buffer = torch.zeros([h, w, mask.shape[-1]], dtype=torch.int32, device=device) - 999999.
+        dp = torch.where(mask, new_tri_depth, deep_depth_buffer).argmax(dim=-1)
+        del new_tri_depth, deep_depth_buffer
+
+        new_tri_tex = torch.masked_select(tri_tex, masks).view(c, -1)
+        image[i] = torch.where((mask.sum(dim=-1) == 0), image[i], new_tri_tex.T[dp].permute(2, 0, 1))
+        del new_tri_tex
+
     return image
 
 

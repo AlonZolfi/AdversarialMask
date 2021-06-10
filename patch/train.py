@@ -165,7 +165,7 @@ class TrainPatch:
             img_batch = img_batch.to(device)
             adv_patch = adv_patch_cpu.to(device)
 
-            lab_batch, preds = self.location_extractor(img_batch)
+            preds = self.location_extractor(img_batch)
             img_batch_applied = self.fxz_projector(img_batch, preds, adv_patch)
 
             # img_batch = F.interpolate(img_batch, size=112)
@@ -216,6 +216,7 @@ class TrainPatch:
         with torch.no_grad():
             person_embeddings = torch.empty(0, device=device)
             for img_batch in self.train_loader:
+                img_batch = img_batch.to(device)
                 embedding = self.embedder(img_batch)
                 person_embeddings = torch.cat([person_embeddings, embedding], dim=0)
             return person_embeddings.mean(dim=0).unsqueeze(0)

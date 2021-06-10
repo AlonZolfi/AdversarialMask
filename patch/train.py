@@ -12,6 +12,7 @@ import numpy as np
 from tqdm import tqdm
 from torchvision import transforms
 from torch.nn import CosineSimilarity
+from torch.cuda.amp import autocast
 import torch.optim as optim
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
@@ -154,7 +155,7 @@ class TrainPatch:
         self.plot_train_val_loss()
         self.plot_separate_loss()
 
-    def calc_loss(self, patch_emb, tv_loss):
+    def loss_fn(self, patch_emb, tv_loss):
         # distance = torch.mean(self.cos_sim(clean_emb, patch_emb))
         distance_loss = self.config.dist_weight * torch.mean(1 - self.cos_sim(self.target_embedding, patch_emb))
         tv_loss = self.config.tv_weight * tv_loss
@@ -183,7 +184,7 @@ class TrainPatch:
         return patch
 
     def forward_step(self, img_batch, adv_patch_cpu):
-        with warnings.catch_warnings():
+        with warnings.catch_warnings(), autocast():
             warnings.simplefilter('ignore', UserWarning)
             img_batch = img_batch.to(device)
             adv_patch = adv_patch_cpu.to(device)
@@ -191,15 +192,10 @@ class TrainPatch:
             preds = self.location_extractor(img_batch)
             img_batch_applied = self.fxz_projector(img_batch, preds, adv_patch)
 
-            # img_batch = F.interpolate(img_batch, size=112)
-            # img_batch_applied = F.interpolate(img_batch_applied, size=112)
-
-            # clean_emb = self.embedder(img_batch)
             patch_emb = self.embedder(img_batch_applied)
 
             tv_loss = self.total_variation(adv_patch)
-            loss = self.calc_loss(patch_emb, tv_loss)
-            # loss = self.calc_loss(patch_emb)
+            loss = self.loss_fn(patch_emb, tv_loss)
             return loss
 
     def calc_validation(self, adv_patch_cpu):

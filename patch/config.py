@@ -12,8 +12,8 @@ class BaseConfiguration:
         self.img_size = (112, 112)
         self.patch_size = (256, 256)  # height, width
         self.batch_size = 2
-        self.epochs = 10
-        self.patch_type = 'l_stripes'
+        self.epochs = 2
+        self.patch_type = 'random'
         self.mask_points = [36, 4, 5, 6, 7, 8, 9, 10, 11, 12, 45]
         self.start_learning_rate = 1e-2
         self.scheduler_factory = lambda optimizer: optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min')
@@ -21,6 +21,8 @@ class BaseConfiguration:
         self.embedder_weights_path = os.path.join('..', 'arcface_torch', 'weights', 'arcface_resnet100.pth')
         self.parabola_rate = 0.5
         self.rotation_angle = 0.6
+        self.dist_weight = 0.9
+        self.tv_weight = 0.1
         # 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,  # chin
         # 17, 18, 19, 20, 21,  # left eye-brow
         # 22, 23, 24, 25, 26,  # right eye-brow
@@ -42,7 +44,7 @@ class TrainingOnPrivateComputer(BaseConfiguration):
     def __init__(self):
         super(TrainingOnPrivateComputer, self).__init__()
         self.patch_name = 'private'
-        self.batch_size = 1
+        self.batch_size = 2
 
 
 patch_config_types = {

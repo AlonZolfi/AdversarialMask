@@ -29,7 +29,9 @@ print('device is {}'.format(device))
 
 if sys.base_prefix.__contains__('home/zolfi'):
     sys.path.append('/home/zolfi/AdversarialMask/patch')
-    sys.path.append('/home/zolfi/AdversarialMask/facenet_pytorch')
+    sys.path.append('/home/zolfi/AdversarialMask/arcface_torch')
+    sys.path.append('/home/zolfi/AdversarialMask/face-alignment')
+    sys.path.append('/home/zolfi/AdversarialMask/prnet')
     os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
 
@@ -87,8 +89,11 @@ class TrainPatch:
 
         my_date = datetime.datetime.now()
         month_name = my_date.strftime("%B")
-        self.current_dir = "experiments/" + month_name + '/' + time.strftime("%d-%m-%Y") + '_' + time.strftime(
-            "%H-%M-%S")
+        if 'SLURM_JOBID' not in os.environ.keys():
+            self.current_dir = "experiments/" + month_name + '/' + time.strftime("%d-%m-%Y") + '_' + time.strftime(
+                "%H-%M-%S")
+        else:
+            self.current_dir = "experiments/" + month_name + '/' + time.strftime("%d-%m-%Y") + '_' + os.environ['SLURM_JOBID']
         self.create_folders()
         self.target_embedding = self.get_person_embedding()
 

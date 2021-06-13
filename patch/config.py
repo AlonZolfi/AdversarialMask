@@ -12,7 +12,7 @@ class BaseConfiguration:
         self.img_size = (112, 112)
         self.patch_size = (256, 256)  # height, width
         self.batch_size = 2
-        self.epochs = 2
+        self.epochs = 10
         self.patch_type = 'random'
         self.mask_points = [36, 4, 5, 6, 7, 8, 9, 10, 11, 12, 45]
         self.start_learning_rate = 1e-2
@@ -21,8 +21,8 @@ class BaseConfiguration:
         self.embedder_weights_path = os.path.join('..', 'arcface_torch', 'weights', 'arcface_resnet100.pth')
         self.parabola_rate = 0.5
         self.rotation_angle = 0.6
-        self.dist_weight = 0.9
-        self.tv_weight = 0.1
+        self.dist_weight = 0.5
+        self.tv_weight = 0.5
         # 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,  # chin
         # 17, 18, 19, 20, 21,  # left eye-brow
         # 22, 23, 24, 25, 26,  # right eye-brow

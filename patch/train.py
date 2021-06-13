@@ -182,14 +182,14 @@ class TrainPatch:
                 patch[0, 2, int(patch.size()[2]/4)*i:int(patch.size()[2]/4)*(i+1), :] = random.randint(0, 255) / 255
         elif p_type == 'random':
             patch = torch.rand((1, 3, self.config.patch_size[0], self.config.patch_size[1]), dtype=torch.float32)
-        uv_face = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L')).to(device)
+        uv_face = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L'))
         patch = patch * uv_face
         patch.requires_grad_(True)
         # transforms.ToPILImage()(patch.squeeze(0) * uv_face).show()
         return patch
 
     def forward_step(self, img_batch, adv_patch_cpu):
-        with warnings.catch_warnings(), autocast():
+        with warnings.catch_warnings():
             warnings.simplefilter('ignore', UserWarning)
             img_batch = img_batch.to(device)
             adv_patch = adv_patch_cpu.to(device)

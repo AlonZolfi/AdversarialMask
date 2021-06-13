@@ -66,8 +66,8 @@ class TrainPatch:
                                             [transforms.Resize(self.config.img_size), transforms.ToTensor()]))
 
         self.train_loader, self.val_loader, self.test_loader = SplitDataset(custom_dataset)(
-            val_split=0.1,
-            test_split=0.2,
+            val_split=0.45,
+            test_split=0.05,
             shuffle=True,
             batch_size=self.config.batch_size)
 

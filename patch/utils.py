@@ -121,7 +121,7 @@ class CustomDataset1(Dataset):
         if self.transform:
             image = self.transform(image)
 
-        return image
+        return image, self.img_names[idx]
 
     def get_image_names(self):
         png_images = fnmatch.filter(os.listdir(self.img_dir), '*.png')

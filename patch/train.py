@@ -76,7 +76,8 @@ class TrainPatch:
         # self.transformer = PatchTransformer(device, self.config.img_size, self.config.patch_size)
         # self.landmarks_applier = LandmarksApplier(self.config.mask_points)
 
-        self.location_extractor = LocationExtractor(device, self.config.img_size)
+        # self.location_extractor = LocationExtractor(device, self.config.img_size)
+        self.preds = self.load_preds()
         self.fxz_projector = FaceXZooProjector(device, self.config.img_size, self.config.patch_size)
         self.total_variation = TotalVariation()
         self.cos_sim = CosineSimilarity()
@@ -98,7 +99,7 @@ class TrainPatch:
         self.target_embedding = self.get_person_embedding()
 
     def set_to_device(self):
-        self.location_extractor = self.location_extractor.to(device)
+        # self.location_extractor = self.location_extractor.to(device)
         self.fxz_projector = self.fxz_projector.to(device)
         self.total_variation = self.total_variation.to(device)
         self.cos_sim = self.cos_sim.to(device)
@@ -122,8 +123,8 @@ class TrainPatch:
             tv_loss = 0.0
             progress_bar = tqdm(enumerate(self.train_loader), desc=f'Epoch {epoch}', total=epoch_length)
             prog_bar_desc = 'train-loss: {:.6}, dist-loss: {:.6}, tv-loss: {:.6}'
-            for i_batch, img_batch in progress_bar:
-                b_loss, sep_loss = self.forward_step(img_batch, adv_patch_cpu)
+            for i_batch, (img_batch, img_names) in progress_bar:
+                (b_loss, sep_loss), vars = self.forward_step(img_batch, adv_patch_cpu, img_names)
 
                 train_loss += b_loss.item()
                 dist_loss += sep_loss[0].item()
@@ -147,7 +148,9 @@ class TrainPatch:
                                                                       self.dist_losses[-1],
                                                                       self.tv_losses[-1],
                                                                       self.val_losses[-1]))
-
+                for var in vars + sep_loss:
+                    del var
+                del b_loss
                 torch.cuda.empty_cache()
 
             if early_stop(self.val_losses[-1], adv_patch_cpu, epoch):
@@ -188,26 +191,28 @@ class TrainPatch:
         # transforms.ToPILImage()(patch.squeeze(0) * uv_face).show()
         return patch
 
-    def forward_step(self, img_batch, adv_patch_cpu):
+    def forward_step(self, img_batch, adv_patch_cpu, img_names):
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', UserWarning)
             img_batch = img_batch.to(device)
             adv_patch = adv_patch_cpu.to(device)
 
-            preds = self.location_extractor(img_batch)
+            # preds = self.location_extractor(img_batch)
+            preds = self.get_preds(img_names)
             img_batch_applied = self.fxz_projector(img_batch, preds, adv_patch)
 
             patch_emb = self.embedder(img_batch_applied)
 
             tv_loss = self.total_variation(adv_patch)
             loss = self.loss_fn(patch_emb, tv_loss)
-            return loss
+
+            return loss, [img_batch, adv_patch, img_batch_applied, patch_emb, tv_loss]
 
     def calc_validation(self, adv_patch_cpu):
         val_loss = 0.0
         with torch.no_grad():
-            for img_batch in self.val_loader:
-                loss, _ = self.forward_step(img_batch, adv_patch_cpu)
+            for img_batch, img_names in self.val_loader:
+                (loss, _), _ = self.forward_step(img_batch, adv_patch_cpu, img_names)
                 val_loss += loss.item()
         val_loss = val_loss / len(self.val_loader)
         self.val_losses.append(val_loss)
@@ -268,11 +273,24 @@ class TrainPatch:
     def get_person_embedding(self):
         with torch.no_grad():
             person_embeddings = torch.empty(0, device=device)
-            for img_batch in self.train_loader:
+            for img_batch, _ in self.train_loader:
                 img_batch = img_batch.to(device)
                 embedding = self.embedder(img_batch)
                 person_embeddings = torch.cat([person_embeddings, embedding], dim=0)
             return person_embeddings.mean(dim=0).unsqueeze(0)
+
+    def load_preds(self):
+        landmarks_dict = {}
+        folder = 'landmarks'
+        for file in os.listdir(folder):
+            landmarks_dict[file.replace('.pt', '')] = torch.load(os.path.join(folder, file), map_location=device)
+        return landmarks_dict
+
+    def get_preds(self, img_names):
+        preds = torch.empty(0, device=device)
+        for img_name in img_names:
+            preds = torch.cat([preds, self.preds[img_name.replace('.jpg', '')]], dim=0)
+        return preds
 
 
 def main():
@@ -283,4 +301,5 @@ def main():
 
 
 if __name__ == '__main__':
+
     main()

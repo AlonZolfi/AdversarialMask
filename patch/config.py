@@ -44,7 +44,7 @@ class TrainingOnPrivateComputer(BaseConfiguration):
     def __init__(self):
         super(TrainingOnPrivateComputer, self).__init__()
         self.patch_name = 'private'
-        self.batch_size = 2
+        self.batch_size = 1
 
 
 patch_config_types = {

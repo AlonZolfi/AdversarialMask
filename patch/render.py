@@ -22,31 +22,38 @@ def get_mask_from_bb(h, w, device, box):
     return mask
 
 
+def get_unique_first_indices(inverse, unique_size):
+    perm = torch.arange(inverse.size(0), dtype=inverse.dtype, device=inverse.device)
+    inverse, perm = inverse.flip([0]), perm.flip([0])
+    perm = inverse.new_empty(unique_size).scatter_(0, inverse, perm)
+    return perm
+
+
 def get_image_by_sort_method(bboxes, depth, texture, h, w, device):
     depth_sorted, indices = torch.sort(depth, descending=True)
     texture_sorted = torch.index_select(input=texture, dim=1, index=indices)
     uni_texture_sorted = torch.ones(1, device=device)
     bb_sorted = torch.index_select(input=bboxes, dim=0, index=indices)
+    bboxes_unique, inverse = torch.unique(bb_sorted, dim=0, return_inverse=True)
+    uni_idx = get_unique_first_indices(inverse, bboxes_unique.size(0))
+    texture_sorted = torch.index_select(input=texture_sorted, dim=1, index=uni_idx)
+
     depth_img = torch.zeros((h, w), device=device)
     color_img = torch.zeros((3, h, w), device=device)
     face_img = torch.zeros((h, w), device=device)
-    idx = 0
-    while torch.count_nonzero(depth_img) < h * w:
-        if idx == bb_sorted.shape[0]:
-            break
-        box = bb_sorted[idx]
+    for idx in range(bboxes_unique.shape[0]):
+        box = bboxes_unique[idx]
         points_mask = get_mask_from_bb(h, w, device, box)
         condition = (depth_img == 0) & points_mask
         depth_img = torch.where(condition, depth_sorted[idx], depth_img)
         color_img = torch.where(condition, texture_sorted[:, idx].view(3, 1, 1), color_img)
         face_img = torch.where(condition, uni_texture_sorted, face_img)
-        idx += 1
     # print(str(torch.count_nonzero(depth_img).item()) + '/' + str(h*w))
     # print(str(idx) + '/' + str(bb_sorted.shape[0]))
     return color_img, face_img
 
 
-def get_image_by_vectorization(bboxes, new_tri_depth, new_tri_tex, h, w, device):
+def get_image_by_vectorization_with_unique(bboxes, new_tri_depth, new_tri_tex, h, w, device):
     old_bboxes_size = bboxes.shape[0]
     bboxes_unique, uni_idx = torch.unique(bboxes, dim=0, return_inverse=True)
     del bboxes
@@ -79,7 +86,7 @@ def get_image_by_vectorization(bboxes, new_tri_depth, new_tri_tex, h, w, device)
     color_img = torch.zeros((3, h, w), device=device)
     new_tri_tex = (x.unsqueeze(-1) * new_tri_tex.T).max(dim=1)[0].T
     color_img = torch.where((mask.sum(dim=-1) == 0), color_img, new_tri_tex.T[dp].permute(2, 0, 1))
-    del new_tri_tex
+    del new_tri_tex, x
     torch.cuda.empty_cache()
 
     mask_img = torch.zeros((1, h, w), device=device)
@@ -87,6 +94,85 @@ def get_image_by_vectorization(bboxes, new_tri_depth, new_tri_tex, h, w, device)
     del mask
     torch.cuda.empty_cache()
 
+    return color_img, mask_img
+
+
+def get_image_by_vectorization_with_unique_small(bboxes, new_tri_depth, new_tri_tex, h, w, device):
+    depth_sorted, indices = torch.sort(new_tri_depth, descending=True)
+    texture_sorted = torch.index_select(input=new_tri_tex, dim=1, index=indices)
+    bb_sorted = torch.index_select(input=bboxes, dim=0, index=indices)
+    bboxes_unique, inverse = torch.unique(bb_sorted, dim=0, return_inverse=True)
+    uni_idx = get_unique_first_indices(inverse, bboxes_unique.size(0))
+    texture_sorted = torch.index_select(input=texture_sorted, dim=1, index=uni_idx)
+    depth_sorted = torch.index_select(input=depth_sorted, dim=0, index=uni_idx)
+
+    # del bboxes
+    # torch.cuda.empty_cache()
+
+    points = torch.cartesian_prod(torch.arange(0, h, device=device),
+                                  torch.arange(0, w, device=device))
+    points = points.unsqueeze(1).repeat(1, bboxes_unique.shape[0], 1)
+    c1 = (points[:, :, 0] >= bboxes_unique[:, 2])
+    c2 = (points[:, :, 0] <= bboxes_unique[:, 3])
+    c3 = (points[:, :, 1] >= bboxes_unique[:, 0])
+    c4 = (points[:, :, 1] <= bboxes_unique[:, 1])
+    del points
+    torch.cuda.empty_cache()
+
+    mask = (c1 & c2 & c3 & c4).view(h, w, -1)
+    del c1, c2, c3, c4
+    torch.cuda.empty_cache()
+
+    deep_depth_buffer = torch.zeros([h, w, mask.shape[-1]], dtype=torch.int32, device=device) - 999999.
+    dp = torch.where(mask, depth_sorted, deep_depth_buffer).argmax(dim=-1)
+    del new_tri_depth, deep_depth_buffer
+    torch.cuda.empty_cache()
+
+    color_img = torch.zeros((3, h, w), device=device)
+    color_img = torch.where((mask.sum(dim=-1) == 0), color_img, texture_sorted.T[dp].permute(2, 0, 1))
+    # del new_tri_tex, x
+    # torch.cuda.empty_cache()
+
+    mask_img = torch.zeros((1, h, w), device=device)
+    mask_img = torch.where((mask.sum(dim=-1) == 0), mask_img, torch.ones(1, device=device))
+    del mask
+    torch.cuda.empty_cache()
+
+    return color_img, mask_img
+
+
+def get_image_by_vectorization_without_unique(bboxes, new_tri_depth, new_tri_tex, h, w, device):
+    points = torch.cartesian_prod(torch.arange(0, h, device=device),
+                                  torch.arange(0, w, device=device))
+    print(bboxes.shape[0])
+    points = points.unsqueeze(1).repeat(1, bboxes.shape[0], 1)
+    c1 = (points[:, :, 0] >= bboxes[:, 2])
+    c2 = (points[:, :, 0] <= bboxes[:, 3])
+    c3 = (points[:, :, 1] >= bboxes[:, 0])
+    c4 = (points[:, :, 1] <= bboxes[:, 1])
+
+    del points, bboxes
+    torch.cuda.empty_cache()
+
+    mask = (c1 & c2 & c3 & c4).view(h, w, -1)
+
+    del c1, c2, c3, c4
+    torch.cuda.empty_cache()
+
+    deep_depth_buffer = torch.zeros([h, w, mask.shape[-1]], dtype=torch.int32, device=device) - 999999.
+    dp = torch.where(mask, new_tri_depth, deep_depth_buffer).argmax(dim=-1)
+
+    del new_tri_depth, deep_depth_buffer
+    torch.cuda.empty_cache()
+
+    color_img = torch.zeros((3, h, w), device=device)
+    color_img = torch.where((mask.sum(dim=-1) == 0), color_img, new_tri_tex.T[dp].permute(2, 0, 1))
+
+    mask_img = torch.zeros((1, h, w), device=device)
+    mask_img = torch.where((mask.sum(dim=-1) == 0), mask_img, torch.ones(1, device=device))
+
+    del mask, new_tri_tex, dp
+    torch.cuda.empty_cache()
     return color_img, mask_img
 
 
@@ -149,8 +235,10 @@ def render_texture_pt(vertices, colors, triangles, device, b, h, w):
         bboxes = torch.masked_select(torch.stack([umins[i], umaxs[i], vmins[i], vmaxs[i]]), masks[i]).view(4, -1).T
         new_tri_depth = torch.masked_select(tri_depth[i], masks[i])
         new_tri_tex = torch.masked_select(tri_tex[i], masks[i]).view(3, -1)
-        image[i], face_mask[i] = get_image_by_sort_method(bboxes, new_tri_depth, new_tri_tex, h, w, device)
-        # image[i], face_mask[i] = get_image_by_vectorization(bboxes, new_tri_depth, new_tri_tex, h, w, device)
+        # image[i], face_mask[i] = get_image_by_sort_method(bboxes, new_tri_depth, new_tri_tex, h, w, device)
+        # image[i], face_mask[i] = get_image_by_vectorization_with_unique(bboxes, new_tri_depth, new_tri_tex, h, w, device)
+        image[i], face_mask[i] = get_image_by_vectorization_with_unique_small(bboxes, new_tri_depth, new_tri_tex, h, w, device)
+        # image[i], face_mask[i] = get_image_by_vectorization_without_unique(bboxes, new_tri_depth, new_tri_tex, h, w, device)
 
         # new_triangles = torch.masked_select(triangles, masks[i]).view(3, -1)
 

@@ -11,7 +11,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from torchvision import transforms
-from torch.nn import CosineSimilarity
+from torch.nn import CosineSimilarity, L1Loss, MSELoss
 from torch.cuda.amp import autocast
 import torch.optim as optim
 import matplotlib.pyplot as plt
@@ -66,9 +66,9 @@ class TrainPatch:
                                             [transforms.Resize(self.config.img_size), transforms.ToTensor()]))
 
         self.train_loader, self.val_loader, self.test_loader = SplitDataset(custom_dataset)(
-            val_split=0.45,
-            test_split=0.05,
-            shuffle=True,
+            val_split=self.config.val_split,
+            test_split=self.config.test_split,
+            shuffle=self.config.shuffle,
             batch_size=self.config.batch_size)
 
         self.embedder = load_embedder(self.config.embedder_name, self.config.embedder_weights_path, device)
@@ -80,7 +80,7 @@ class TrainPatch:
         self.preds = self.load_preds()
         self.fxz_projector = FaceXZooProjector(device, self.config.img_size, self.config.patch_size)
         self.total_variation = TotalVariation()
-        self.cos_sim = CosineSimilarity()
+        self.dist_loss = self.get_loss()
         self.set_to_device()
 
         self.train_losses = []
@@ -102,7 +102,7 @@ class TrainPatch:
         # self.location_extractor = self.location_extractor.to(device)
         self.fxz_projector = self.fxz_projector.to(device)
         self.total_variation = self.total_variation.to(device)
-        self.cos_sim = self.cos_sim.to(device)
+        self.dist_loss = self.dist_loss.to(device)
 
     def create_folders(self):
         Path('/'.join(self.current_dir.split('/')[:2])).mkdir(parents=True, exist_ok=True)
@@ -112,10 +112,10 @@ class TrainPatch:
         Path(self.current_dir + '/losses').mkdir(parents=True, exist_ok=True)
 
     def train(self):
-        adv_patch_cpu = self.get_patch(self.config.patch_type)
+        adv_patch_cpu = self.get_patch(self.config.initial_patch)
         optimizer = optim.Adam([adv_patch_cpu], lr=self.config.start_learning_rate, amsgrad=True)
         scheduler = self.config.scheduler_factory(optimizer)
-        early_stop = EarlyStopping(current_dir=self.current_dir)
+        early_stop = EarlyStopping(current_dir=self.current_dir, patience=3)
         epoch_length = len(self.train_loader)
         for epoch in range(self.config.epochs):
             train_loss = 0.0
@@ -165,7 +165,7 @@ class TrainPatch:
 
     def loss_fn(self, patch_emb, tv_loss):
         # distance = torch.mean(self.cos_sim(clean_emb, patch_emb))
-        distance_loss = self.config.dist_weight * torch.mean(1 - self.cos_sim(self.target_embedding, patch_emb))
+        distance_loss = self.config.dist_weight * torch.mean(1 - self.dist_loss(patch_emb, self.target_embedding))
         tv_loss = self.config.tv_weight * tv_loss
         total_loss = distance_loss + tv_loss
         return total_loss, [distance_loss, tv_loss]
@@ -240,7 +240,6 @@ class TrainPatch:
         epochs = [x + 1 for x in range(len(self.train_losses))]
         weights = np.array([self.config.dist_weight, self.config.tv_weight])
         number_of_subplots = weights[weights > 0].astype(bool).sum()
-        print(number_of_subplots)
         fig, axes = plt.subplots(nrows=1, ncols=number_of_subplots, figsize=(6 * number_of_subplots, 2 * number_of_subplots), squeeze=False)
         idx = 0
         for weight, train_loss, label in zip(weights, [self.dist_losses,  self.tv_losses], ['Distance loss', 'Total Variation loss']):
@@ -291,6 +290,15 @@ class TrainPatch:
         for img_name in img_names:
             preds = torch.cat([preds, self.preds[img_name.replace('.jpg', '')]], dim=0)
         return preds
+
+    def get_loss(self):
+        if self.config.dist_loss_type == 'cossim':
+            return CosineSimilarity()
+        elif self.config.dist_loss_type == 'L2':
+            return MSELoss()
+        elif self.config.dist_loss_type == 'L1':
+            return L1Loss()
+        raise ValueError()
 
 
 def main():

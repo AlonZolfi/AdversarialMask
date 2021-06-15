@@ -76,7 +76,7 @@ class TrainPatch:
         # self.transformer = PatchTransformer(device, self.config.img_size, self.config.patch_size)
         # self.landmarks_applier = LandmarksApplier(self.config.mask_points)
 
-        # self.location_extractor = LocationExtractor(device, self.config.img_size)
+        self.location_extractor = LocationExtractor(device, self.config.img_size)
         self.preds = self.load_preds()
         self.fxz_projector = FaceXZooProjector(device, self.config.img_size, self.config.patch_size)
         self.total_variation = TotalVariation()
@@ -115,7 +115,7 @@ class TrainPatch:
         adv_patch_cpu = self.get_patch(self.config.initial_patch)
         optimizer = optim.Adam([adv_patch_cpu], lr=self.config.start_learning_rate, amsgrad=True)
         scheduler = self.config.scheduler_factory(optimizer)
-        early_stop = EarlyStopping(current_dir=self.current_dir, patience=3)
+        early_stop = EarlyStopping(current_dir=self.current_dir, patience=self.config.es_patience)
         epoch_length = len(self.train_loader)
         for epoch in range(self.config.epochs):
             train_loss = 0.0
@@ -200,7 +200,7 @@ class TrainPatch:
             # preds = self.location_extractor(img_batch)
             preds = self.get_preds(img_names)
             img_batch_applied = self.fxz_projector(img_batch, preds, adv_patch)
-
+            # img_batch_applied = torch.nn.functional.interpolate(img_batch_applied, 112)
             patch_emb = self.embedder(img_batch_applied)
 
             tv_loss = self.total_variation(adv_patch)
@@ -274,21 +274,38 @@ class TrainPatch:
             person_embeddings = torch.empty(0, device=device)
             for img_batch, _ in self.train_loader:
                 img_batch = img_batch.to(device)
+                # img_batch = torch.nn.functional.interpolate(img_batch, 112)
                 embedding = self.embedder(img_batch)
                 person_embeddings = torch.cat([person_embeddings, embedding], dim=0)
             return person_embeddings.mean(dim=0).unsqueeze(0)
 
     def load_preds(self):
+        print('Starting landmark prediction')
         landmarks_dict = {}
-        folder = 'landmarks'
-        for file in os.listdir(folder):
-            landmarks_dict[file.replace('.pt', '')] = torch.load(os.path.join(folder, file), map_location=device)
+        folder = self.config.landmark_folder
+        Path(self.config.landmark_folder).mkdir(parents=True, exist_ok=True)
+        lm_cur_files = os.listdir(folder)
+        for loader in [self.train_loader, self.val_loader, self.test_loader]:
+            for image, img_names in loader:
+                for img_idx in range(len(img_names)):
+                    file_name = img_names[img_idx].split('.')[0] + '.pt'
+                    if file_name not in lm_cur_files:
+                        image = image.to(device)
+                        preds = self.location_extractor(image)
+                        torch.save(preds, os.path.join(folder, file_name))
+                    else:
+                        preds = torch.load(os.path.join(folder, file_name), map_location=device)
+                    landmarks_dict[file_name.replace('.pt', '')] = preds
+        del self.location_extractor
+        torch.cuda.empty_cache()
+        print('Finished landmark prediction')
         return landmarks_dict
 
     def get_preds(self, img_names):
         preds = torch.empty(0, device=device)
         for img_name in img_names:
-            preds = torch.cat([preds, self.preds[img_name.replace('.jpg', '')]], dim=0)
+            dict_key_name = img_name.split('.')[0]
+            preds = torch.cat([preds, self.preds[dict_key_name]], dim=0)
         return preds
 
     def get_loss(self):

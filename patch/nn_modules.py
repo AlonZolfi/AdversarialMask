@@ -24,7 +24,8 @@ class LocationExtractor(nn.Module):
         self.face_align = FaceAlignment(LandmarksType._2D, device=str(device))
 
     def forward(self, img_batch):
-        points = self.face_align.get_landmarks_from_batch(img_batch * 255)
+        with torch.no_grad():
+            points = self.face_align.get_landmarks_from_batch(img_batch * 255)
         single_face_points = [landmarks[:68] for landmarks in points]
         preds = torch.tensor(single_face_points, device=self.device)
         return preds

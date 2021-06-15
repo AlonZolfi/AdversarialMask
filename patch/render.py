@@ -97,46 +97,41 @@ def get_image_by_vectorization_with_unique(bboxes, new_tri_depth, new_tri_tex, h
     return color_img, mask_img
 
 
-def get_image_by_vectorization_with_unique_small(bboxes, new_tri_depth, new_tri_tex, h, w, device):
+def get_image_by_vectorization_with_unique_small(bboxes, new_tri_depth, new_tri_tex, new_triangles, vertices, h, w, device):
     depth_sorted, indices = torch.sort(new_tri_depth, descending=True)
-    texture_sorted = torch.index_select(input=new_tri_tex, dim=1, index=indices)
     bb_sorted = torch.index_select(input=bboxes, dim=0, index=indices)
+    texture_sorted = torch.index_select(input=new_tri_tex, dim=1, index=indices)
+    triangles_sorted = torch.index_select(input=new_triangles, dim=1, index=indices)
     bboxes_unique, inverse = torch.unique(bb_sorted, dim=0, return_inverse=True)
     uni_idx = get_unique_first_indices(inverse, bboxes_unique.size(0))
-    texture_sorted = torch.index_select(input=texture_sorted, dim=1, index=uni_idx)
     depth_sorted = torch.index_select(input=depth_sorted, dim=0, index=uni_idx)
-
-    # del bboxes
-    # torch.cuda.empty_cache()
+    texture_sorted = torch.index_select(input=texture_sorted, dim=1, index=uni_idx)
+    triangles_sorted = torch.index_select(input=triangles_sorted, dim=1, index=uni_idx)
 
     points = torch.cartesian_prod(torch.arange(0, h, device=device),
                                   torch.arange(0, w, device=device))
+    c5 = torch.empty(0, dtype=torch.bool, device=device)
+    # for tri_idx in range(triangles_sorted.shape[1]):
+    #     point_in_tri_mask = arePointsInTri_pt(points, vertices[:2, triangles_sorted[:, tri_idx]].unsqueeze(0), h, w)
+    #     c5 = torch.cat([c5, point_in_tri_mask.unsqueeze(-1)], dim=-1)
+    # c5 = c5.view(-1, c5.shape[-1])
     points = points.unsqueeze(1).repeat(1, bboxes_unique.shape[0], 1)
     c1 = (points[:, :, 0] >= bboxes_unique[:, 2])
     c2 = (points[:, :, 0] <= bboxes_unique[:, 3])
     c3 = (points[:, :, 1] >= bboxes_unique[:, 0])
     c4 = (points[:, :, 1] <= bboxes_unique[:, 1])
-    del points
-    torch.cuda.empty_cache()
 
     mask = (c1 & c2 & c3 & c4).view(h, w, -1)
-    del c1, c2, c3, c4
-    torch.cuda.empty_cache()
+    # mask = (c1 & c2 & c3 & c4 & c5).view(h, w, -1)
 
     deep_depth_buffer = torch.zeros([h, w, mask.shape[-1]], dtype=torch.int32, device=device) - 999999.
     dp = torch.where(mask, depth_sorted, deep_depth_buffer).argmax(dim=-1)
-    del new_tri_depth, deep_depth_buffer
-    torch.cuda.empty_cache()
 
     color_img = torch.zeros((3, h, w), device=device)
     color_img = torch.where((mask.sum(dim=-1) == 0), color_img, texture_sorted.T[dp].permute(2, 0, 1))
-    # del new_tri_tex, x
-    # torch.cuda.empty_cache()
 
     mask_img = torch.zeros((1, h, w), device=device)
     mask_img = torch.where((mask.sum(dim=-1) == 0), mask_img, torch.ones(1, device=device))
-    del mask
-    torch.cuda.empty_cache()
 
     return color_img, mask_img
 
@@ -186,15 +181,10 @@ def render_texture_pt(vertices, colors, triangles, device, b, h, w):
         w: width
     '''
     # initial
-    # image = torch.zeros((h, w, c))
-    # image1 = torch.zeros((h, w, c))
-    # image2 = torch.zeros((h, w, c), device=device)
-    # image2 = torch.zeros((b, h, w, c), device=device)
+    # image2 = torch.zeros((b, h, w,3), device=device)
 
-    # depth_buffer = torch.zeros([h, w]) - 999999.
-    # depth_buffer1 = torch.zeros([h, w], device=device) - 999999.
     # depth_buffer1 = torch.zeros([b, h, w], device=device) - 999999.
-    # depth_buffer2 = torch.zeros([h, w], device=device) - 999999.
+
     # triangle depth: approximate the depth to the average value of z in each vertex(v0, v1, v2), since the vertices are closed to each other
     tri_depth = (vertices[:, 2, triangles[0, :]] + vertices[:, 2, triangles[1, :]] + vertices[:, 2, triangles[2, :]]) / 3.
     tri_tex = (colors[:, :, triangles[0, :]] + colors[:, :, triangles[1, :]] + colors[:, :, triangles[2, :]]) / 3.
@@ -235,32 +225,32 @@ def render_texture_pt(vertices, colors, triangles, device, b, h, w):
         bboxes = torch.masked_select(torch.stack([umins[i], umaxs[i], vmins[i], vmaxs[i]]), masks[i]).view(4, -1).T
         new_tri_depth = torch.masked_select(tri_depth[i], masks[i])
         new_tri_tex = torch.masked_select(tri_tex[i], masks[i]).view(3, -1)
+        new_triangles = torch.masked_select(triangles, masks[i]).view(3, -1)
         # image[i], face_mask[i] = get_image_by_sort_method(bboxes, new_tri_depth, new_tri_tex, h, w, device)
         # image[i], face_mask[i] = get_image_by_vectorization_with_unique(bboxes, new_tri_depth, new_tri_tex, h, w, device)
-        image[i], face_mask[i] = get_image_by_vectorization_with_unique_small(bboxes, new_tri_depth, new_tri_tex, h, w, device)
+        image[i], face_mask[i] = get_image_by_vectorization_with_unique_small(bboxes, new_tri_depth, new_tri_tex, new_triangles, vertices[i], h, w, device)
         # image[i], face_mask[i] = get_image_by_vectorization_without_unique(bboxes, new_tri_depth, new_tri_tex, h, w, device)
 
-        # new_triangles = torch.masked_select(triangles, masks[i]).view(3, -1)
 
-        '''for j in range(bboxes.shape[0]):
-            umin = bboxes[j, 0].item()
-            umax = bboxes[j, 1].item()
-            vmin = bboxes[j, 2].item()
-            vmax = bboxes[j, 3].item()
-            # uv_vector = torch.cartesian_prod(torch.arange(umin, umax+1, device=device),
-            #                                  torch.arange(vmin, vmax+1, device=device))
-            condition = (new_tri_depth[j] > depth_buffer1[i, vmin:vmax+1, umin:umax+1])
-            # condition = (new_tri_depth[j] > depth_buffer1[i, vmin:vmax+1, umin:umax+1]) & \
-            #             (arePointsInTri_pt(uv_vector, vertices[i, :2, new_triangles[:, j]].unsqueeze(0), umax-umin+1, vmax-vmin+1))
-            depth_buffer1[i, vmin:vmax+1, umin:umax+1] = torch.where(condition,
-                                                                     new_tri_depth[j].repeat(condition.shape),
-                                                                     depth_buffer1[i, vmin:vmax+1, umin:umax+1])
-
-            image2[i, vmin:vmax + 1, umin:umax + 1, :] = torch.where(condition.unsqueeze(-1).repeat(1, 1, c),
-                                                                     new_tri_tex[:, j].repeat(condition.shape).view(condition.shape[0], condition.shape[1], -1),
-                                                                     image2[i, vmin:vmax + 1, umin:umax + 1, :])
-        print((depth_buffer == depth_buffer1[i]).all())
-        print((image[i].permute(1,2,0) == image2[i]).all())'''
+        # for j in range(bboxes.shape[0]):
+        #     umin = bboxes[j, 0].item()
+        #     umax = bboxes[j, 1].item()
+        #     vmin = bboxes[j, 2].item()
+        #     vmax = bboxes[j, 3].item()
+        #     uv_vector = torch.cartesian_prod(torch.arange(0, h, device=device),
+        #                                      torch.arange(0, w, device=device))
+        #     # condition = (new_tri_depth[j] > depth_buffer1[i, vmin:vmax+1, umin:umax+1])
+        #     condition = (new_tri_depth[j] > depth_buffer1[i]) & \
+        #                 (arePointsInTri_pt(uv_vector, vertices[i, :2, new_triangles[:, j]].unsqueeze(0), w, h))
+        #     depth_buffer1[i] = torch.where(condition,
+        #                                    new_tri_depth[j].repeat(condition.shape),
+        #                                    depth_buffer1[i])
+        #
+        #     image2[i, vmin:vmax + 1, umin:umax + 1, :] = torch.where(condition.unsqueeze(-1).repeat(1, 1, 3),
+        #                                                              new_tri_tex[:, j].repeat(condition.shape).view(condition.shape[0], condition.shape[1], -1),
+        #                                                              image2[i, vmin:vmax + 1, umin:umax + 1, :])
+        # print((depth_buffer == depth_buffer1[i]).all())
+        # print((image[i].permute(1,2,0) == image2[i]).all())
     return image, face_mask
 
 

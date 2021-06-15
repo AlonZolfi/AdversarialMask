@@ -6,30 +6,35 @@ class BaseConfiguration:
     def __init__(self):
         # Dataset options
         self.patch_name = 'base'
-        self.dataset_name = 'debug'
-        self.img_dir = os.path.join('..', 'datasets', self.dataset_name)
+        self.dataset_name = 'celebA'
+        self.celeb_lab = '2820'
+        self.img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab)
         self.lab_dir = os.path.join('..', 'datasets', self.dataset_name)
-        self.val_split = 0.3
+        self.val_split = 0.4
         self.test_split = 0.05
         self.shuffle = True
         self.img_size = (112, 112)
         self.batch_size = 2
+        self.landmark_folder = os.path.join('landmarks/celebA', self.celeb_lab)
 
         # Attack options
         self.patch_size = (256, 256)  # height, width
         self.initial_patch = 'random'
-        self.epochs = 50
+        self.epochs = 100
         self.start_learning_rate = 1e-2
-        self.scheduler_factory = lambda optimizer: optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min')
+        self.es_patience = 5
+        self.scheduler_factory = lambda optimizer: optim.lr_scheduler.ReduceLROnPlateau(optimizer,
+                                                                                        patience=3,
+                                                                                        mode='min')
 
         # Embedder options
         self.embedder_name = 'arcface'
         self.embedder_weights_path = os.path.join('..', 'arcface_torch', 'weights', 'arcface_resnet100.pth')
 
         # Loss options
-        self.dist_loss_type = 'L2'  # cossim, L2, L1
-        self.dist_weight = 0.5
-        self.tv_weight = 0.5
+        self.dist_loss_type = 'cossim'  # cossim, L2, L1
+        self.dist_weight = 0.3
+        self.tv_weight = 0.7
         # 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,  # chin
         # 17, 18, 19, 20, 21,  # left eye-brow
         # 22, 23, 24, 25, 26,  # right eye-brow
@@ -51,7 +56,7 @@ class TrainingOnPrivateComputer(BaseConfiguration):
     def __init__(self):
         super(TrainingOnPrivateComputer, self).__init__()
         self.patch_name = 'private'
-        self.batch_size = 2
+        self.batch_size = 1
 
 
 patch_config_types = {

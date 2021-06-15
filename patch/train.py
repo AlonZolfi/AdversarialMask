@@ -115,7 +115,7 @@ class TrainPatch:
         adv_patch_cpu = self.get_patch(self.config.initial_patch)
         optimizer = optim.Adam([adv_patch_cpu], lr=self.config.start_learning_rate, amsgrad=True)
         scheduler = self.config.scheduler_factory(optimizer)
-        early_stop = EarlyStopping(current_dir=self.current_dir, patience=3)
+        early_stop = EarlyStopping(current_dir=self.current_dir, patience=self.config.es_patience)
         epoch_length = len(self.train_loader)
         for epoch in range(self.config.epochs):
             train_loss = 0.0
@@ -200,7 +200,7 @@ class TrainPatch:
             # preds = self.location_extractor(img_batch)
             preds = self.get_preds(img_names)
             img_batch_applied = self.fxz_projector(img_batch, preds, adv_patch)
-
+            img_batch_applied = torch.nn.functional.interpolate(img_batch_applied, 112)
             patch_emb = self.embedder(img_batch_applied)
 
             tv_loss = self.total_variation(adv_patch)
@@ -274,15 +274,16 @@ class TrainPatch:
             person_embeddings = torch.empty(0, device=device)
             for img_batch, _ in self.train_loader:
                 img_batch = img_batch.to(device)
+                img_batch = torch.nn.functional.interpolate(img_batch, 112)
                 embedding = self.embedder(img_batch)
                 person_embeddings = torch.cat([person_embeddings, embedding], dim=0)
             return person_embeddings.mean(dim=0).unsqueeze(0)
 
     def load_preds(self):
         landmarks_dict = {}
-        folder = 'landmarks'
+        folder = self.config.landmark_folder
         for file in os.listdir(folder):
-            landmarks_dict[file.replace('.pt', '')] = torch.load(os.path.join(folder, file), map_location=device)
+            landmarks_dict[file.replace('.pt', '')] = torch.load(os.path.join(folder,file), map_location=device)
         return landmarks_dict
 
     def get_preds(self, img_names):

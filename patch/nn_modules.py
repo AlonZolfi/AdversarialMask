@@ -24,7 +24,8 @@ class LocationExtractor(nn.Module):
         self.face_align = FaceAlignment(LandmarksType._2D, device=str(device))
 
     def forward(self, img_batch):
-        points = self.face_align.get_landmarks_from_batch(img_batch * 255)
+        with torch.no_grad():
+            points = self.face_align.get_landmarks_from_batch(img_batch * 255)
         single_face_points = [landmarks[:68] for landmarks in points]
         preds = torch.tensor(single_face_points, device=self.device)
         return preds
@@ -61,8 +62,8 @@ class FaceXZooProjector(nn.Module):
                                 torch.zeros(1, device=self.device))
         new_image = img_batch * (1 - face_mask) + (new_image * face_mask)
         new_image = torch.clamp(new_image, 0, 1)  # must clip to (-1, 1)!
-        for i in range(new_image.shape[0]):
-            transforms.ToPILImage()(new_image[i]).show()
+        # for i in range(new_image.shape[0]):
+        #     transforms.ToPILImage()(new_image[i]).show()
         return new_image
 
     def get_vertices(self, face_lms, image):

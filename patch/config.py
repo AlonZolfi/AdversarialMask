@@ -9,7 +9,6 @@ class BaseConfiguration:
         self.dataset_name = 'celebA_strip'
         self.celeb_lab = '2820'
         self.img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab)
-        self.landmark_folder = os.path.join('landmarks', self.dataset_name, self.celeb_lab)
         self.val_split = 0.3
         self.test_split = 0.1
         self.shuffle = True
@@ -20,28 +19,25 @@ class BaseConfiguration:
         self.patch_size = (256, 256)  # height, width
         self.initial_patch = 'random'
         self.epochs = 100
-        self.start_learning_rate = 1e-2
-        self.es_patience = 5
+        self.start_learning_rate = 1e-3
+        self.es_patience = 3
         self.scheduler_factory = lambda optimizer: optim.lr_scheduler.ReduceLROnPlateau(optimizer,
                                                                                         patience=3,
                                                                                         mode='min')
 
         # Embedder options
-        self.embedder_name = 'arcface'
+        self.embedder_name = 'arcface'  # arcface, vggface2
         self.embedder_weights_path = os.path.join('..', 'arcface_torch', 'weights', 'arcface_resnet100.pth')
+        self.landmark_folder = os.path.join('landmarks',
+                                            '_'.join([self.dataset_name, self.embedder_name, str(self.img_size[0])]),
+                                            self.celeb_lab)
+        self.recreate_landmarks = False
+        self.same_person_threshold = 0.4
 
         # Loss options
         self.dist_loss_type = 'cossim'  # cossim, L2, L1
-        self.dist_weight = 0.5
-        self.tv_weight = 0.5
-        # 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,  # chin
-        # 17, 18, 19, 20, 21,  # left eye-brow
-        # 22, 23, 24, 25, 26,  # right eye-brow
-        # 27, 28, 29, 30, 31, 32, 33, 34, 35,  # nose
-        # 36, 37, 38, 39, 40, 41,  # left eye
-        # 42, 43, 44, 45, 46, 47,  # right eye
-        # 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60,  # outer mouth
-        # 61, 62, 63, 64, 65, 66, 67  # inner mouth
+        self.dist_weight = 0.8
+        self.tv_weight = 0.2
 
 
 class TrainingOnCluster(BaseConfiguration):
@@ -55,7 +51,7 @@ class TrainingOnPrivateComputer(BaseConfiguration):
     def __init__(self):
         super(TrainingOnPrivateComputer, self).__init__()
         self.patch_name = 'private'
-        self.batch_size = 2
+        self.batch_size = 1
 
 
 patch_config_types = {

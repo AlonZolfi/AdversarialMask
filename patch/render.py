@@ -110,7 +110,7 @@ def get_image_by_vectorization_with_unique_small(bboxes, new_tri_depth, new_tri_
 
     points = torch.cartesian_prod(torch.arange(0, h, device=device),
                                   torch.arange(0, w, device=device))
-    c5 = torch.empty(0, dtype=torch.bool, device=device)
+    # c5 = torch.empty(0, dtype=torch.bool, device=device)
     # for tri_idx in range(triangles_sorted.shape[1]):
     #     point_in_tri_mask = arePointsInTri_pt(points, vertices[:2, triangles_sorted[:, tri_idx]].unsqueeze(0), h, w)
     #     c5 = torch.cat([c5, point_in_tri_mask.unsqueeze(-1)], dim=-1)

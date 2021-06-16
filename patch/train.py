@@ -9,9 +9,11 @@ import pickle
 
 import torch
 import numpy as np
+import kornia
 from tqdm import tqdm
 from torchvision import transforms
 from torch.nn import CosineSimilarity, L1Loss, MSELoss
+import torch.nn.functional as F
 from torch.cuda.amp import autocast
 import torch.optim as optim
 import matplotlib.pyplot as plt
@@ -21,6 +23,7 @@ from PIL import Image
 
 from config import patch_config_types
 from nn_modules import LocationExtractor, FaceXZooProjector, TotalVariation
+from test import Evaluator
 from utils import SplitDataset, CustomDataset, CustomDataset1, load_embedder, EarlyStopping
 
 global device
@@ -50,7 +53,7 @@ def set_random_seed(seed_value):
 set_random_seed(seed_value=41)
 
 
-class TrainPatch:
+class AdversarialMask:
     def __init__(self, mode):
         self.config = patch_config_types[mode]()
         # custom_dataset = CustomDataset(img_dir=self.config.img_dir_train_val,
@@ -76,8 +79,8 @@ class TrainPatch:
         # self.transformer = PatchTransformer(device, self.config.img_size, self.config.patch_size)
         # self.landmarks_applier = LandmarksApplier(self.config.mask_points)
 
-        self.location_extractor = LocationExtractor(device, self.config.img_size)
-        self.preds = self.load_preds()
+        self.location_extractor = LocationExtractor(device)
+        self.preds = self.load_landmarks()
         self.fxz_projector = FaceXZooProjector(device, self.config.img_size, self.config.patch_size)
         self.total_variation = TotalVariation()
         self.dist_loss = self.get_loss()
@@ -113,6 +116,7 @@ class TrainPatch:
 
     def train(self):
         adv_patch_cpu = self.get_patch(self.config.initial_patch)
+        self.initial_patch = adv_patch_cpu.clone()
         optimizer = optim.Adam([adv_patch_cpu], lr=self.config.start_learning_rate, amsgrad=True)
         scheduler = self.config.scheduler_factory(optimizer)
         early_stop = EarlyStopping(current_dir=self.current_dir, patience=self.config.es_patience)
@@ -155,19 +159,18 @@ class TrainPatch:
 
             if early_stop(self.val_losses[-1], adv_patch_cpu, epoch):
                 self.final_epoch_count = epoch
+                self.best_patch = adv_patch_cpu
                 break
 
             scheduler.step(self.val_losses[-1])
 
-        self.save_final_objects(adv_patch_cpu)
+        self.save_final_objects()
         self.plot_train_val_loss()
         self.plot_separate_loss()
 
     def loss_fn(self, patch_emb, tv_loss):
-        # distance = torch.mean(self.cos_sim(clean_emb, patch_emb))
-        distance_loss = self.config.dist_weight * torch.mean(1 - self.dist_loss(patch_emb, self.target_embedding))
-        tv_loss = self.config.tv_weight * tv_loss
-        total_loss = distance_loss + tv_loss
+        distance_loss = torch.mean(F.relu(self.dist_loss(patch_emb, self.target_embedding)))
+        total_loss = self.config.dist_weight * distance_loss + self.config.tv_weight * tv_loss
         return total_loss, [distance_loss, tv_loss]
 
     def get_patch(self, p_type):
@@ -212,8 +215,12 @@ class TrainPatch:
         val_loss = 0.0
         with torch.no_grad():
             for img_batch, img_names in self.val_loader:
+                img_batch = img_batch.to(device)
                 (loss, _), _ = self.forward_step(img_batch, adv_patch_cpu, img_names)
                 val_loss += loss.item()
+
+                del img_batch, loss
+                torch.cuda.empty_cache()
         val_loss = val_loss / len(self.val_loader)
         self.val_losses.append(val_loss)
 
@@ -255,10 +262,10 @@ class TrainPatch:
         plt.savefig(self.current_dir + '/final_results/separate_loss_plt.png')
         plt.close()
 
-    def save_final_objects(self, adv_patch):
-        transforms.ToPILImage()(adv_patch.squeeze(0)).save(
+    def save_final_objects(self):
+        transforms.ToPILImage()(self.best_patch.squeeze(0)).save(
             self.current_dir + '/final_results/final_patch.png', 'PNG')
-        torch.save(adv_patch, self.current_dir + '/final_results/final_patch_raw.pt')
+        torch.save(self.best_patch, self.current_dir + '/final_results/final_patch_raw.pt')
 
         with open(self.current_dir + '/losses/train_losses', 'wb') as fp:
             pickle.dump(self.train_losses, fp)
@@ -274,12 +281,14 @@ class TrainPatch:
             person_embeddings = torch.empty(0, device=device)
             for img_batch, _ in self.train_loader:
                 img_batch = img_batch.to(device)
-                # img_batch = torch.nn.functional.interpolate(img_batch, 112)
                 embedding = self.embedder(img_batch)
                 person_embeddings = torch.cat([person_embeddings, embedding], dim=0)
+
+                del img_batch
+                torch.cuda.empty_cache()
             return person_embeddings.mean(dim=0).unsqueeze(0)
 
-    def load_preds(self):
+    def load_landmarks(self):
         print('Starting landmark prediction')
         landmarks_dict = {}
         folder = self.config.landmark_folder
@@ -289,9 +298,9 @@ class TrainPatch:
             for image, img_names in loader:
                 for img_idx in range(len(img_names)):
                     file_name = img_names[img_idx].split('.')[0] + '.pt'
-                    if file_name not in lm_cur_files:
-                        image = image.to(device)
-                        preds = self.location_extractor(image)
+                    if (file_name not in lm_cur_files) or self.config.recreate_landmarks:
+                        img = image[img_idx].to(device).unsqueeze(0)
+                        preds = self.location_extractor(img)
                         torch.save(preds, os.path.join(folder, file_name))
                     else:
                         preds = torch.load(os.path.join(folder, file_name), map_location=device)
@@ -321,10 +330,11 @@ class TrainPatch:
 def main():
     mode = 'private'
     # mode = 'cluster'
-    patch_train = TrainPatch(mode)
-    patch_train.train()
+    adv_mask = AdversarialMask(mode)
+    adv_mask.train()
+    # evaluator = Evaluator(adv_mask)
+    # evaluator.test()
 
 
 if __name__ == '__main__':
-
     main()

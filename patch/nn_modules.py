@@ -16,11 +16,9 @@ from PIL import Image
 
 
 class LocationExtractor(nn.Module):
-    def __init__(self, device, img_size):
+    def __init__(self, device):
         super(LocationExtractor, self).__init__()
         self.device = device
-        self.img_size_height = img_size[0]
-        self.img_size_width = img_size[1]
         self.face_align = FaceAlignment(LandmarksType._2D, device=str(device))
 
     def forward(self, img_batch):

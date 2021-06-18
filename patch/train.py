@@ -100,6 +100,7 @@ class AdversarialMask:
             self.current_dir = "experiments/" + month_name + '/' + time.strftime("%d-%m-%Y") + '_' + os.environ['SLURM_JOBID']
         self.create_folders()
         self.target_embedding = self.get_person_embedding()
+        self.best_patch = None
 
     def set_to_device(self):
         # self.location_extractor = self.location_extractor.to(device)
@@ -158,12 +159,12 @@ class AdversarialMask:
                 torch.cuda.empty_cache()
 
             if early_stop(self.val_losses[-1], adv_patch_cpu, epoch):
-                self.final_epoch_count = epoch
                 self.best_patch = adv_patch_cpu
                 break
 
             scheduler.step(self.val_losses[-1])
 
+        self.best_patch = early_stop.best_patch
         self.save_final_objects()
         self.plot_train_val_loss()
         self.plot_separate_loss()
@@ -201,7 +202,7 @@ class AdversarialMask:
             adv_patch = adv_patch_cpu.to(device)
 
             # preds = self.location_extractor(img_batch)
-            preds = self.get_preds(img_names)
+            preds = self.get_batch_landmarks(img_names)
             img_batch_applied = self.fxz_projector(img_batch, preds, adv_patch)
             # img_batch_applied = torch.nn.functional.interpolate(img_batch_applied, 112)
             patch_emb = self.embedder(img_batch_applied)
@@ -310,7 +311,7 @@ class AdversarialMask:
         print('Finished landmark prediction')
         return landmarks_dict
 
-    def get_preds(self, img_names):
+    def get_batch_landmarks(self, img_names):
         preds = torch.empty(0, device=device)
         for img_name in img_names:
             dict_key_name = img_name.split('.')[0]
@@ -332,8 +333,8 @@ def main():
     # mode = 'cluster'
     adv_mask = AdversarialMask(mode)
     adv_mask.train()
-    # evaluator = Evaluator(adv_mask)
-    # evaluator.test()
+    evaluator = Evaluator(adv_mask)
+    evaluator.test()
 
 
 if __name__ == '__main__':

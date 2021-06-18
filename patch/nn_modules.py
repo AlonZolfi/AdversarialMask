@@ -41,10 +41,13 @@ class FaceXZooProjector(nn.Module):
         self.uv_mask_src = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L')).to(device)
         self.triangles = torch.from_numpy(np.loadtxt('../prnet/triangles.txt').astype(np.int64)).T.to(device)
 
-    def forward(self, img_batch, landmarks, adv_patch):
+    def forward(self, img_batch, landmarks, adv_patch, uv_mask_src=None):
         pos, vertices = self.get_vertices(landmarks, img_batch)
         texture = kornia.geometry.remap(img_batch, map_x=pos[:, 0], map_y=pos[:, 1], mode='nearest')
-        new_texture = texture * (1 - self.uv_mask_src) + adv_patch * self.uv_mask_src
+        if uv_mask_src is None:
+            new_texture = texture * (1 - self.uv_mask_src) + adv_patch * self.uv_mask_src
+        else:
+            new_texture = texture * (1 - uv_mask_src) + adv_patch * uv_mask_src
         new_colors = self.prn.get_colors_from_texture(new_texture)
         del new_texture, texture, pos
         torch.cuda.empty_cache()

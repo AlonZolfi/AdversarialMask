@@ -9,8 +9,8 @@ class BaseConfiguration:
         self.dataset_name = 'celebA_strip'
         self.celeb_lab = '2820'
         self.img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab)
-        self.val_split = 0.3
-        self.test_split = 0.1
+        self.val_split = 0.1
+        self.test_split = 0.7
         self.shuffle = True
         self.img_size = (112, 112)
         self.batch_size = 2
@@ -18,7 +18,7 @@ class BaseConfiguration:
         # Attack options
         self.patch_size = (256, 256)  # height, width
         self.initial_patch = 'random'
-        self.epochs = 100
+        self.epochs = 1
         self.start_learning_rate = 1e-3
         self.es_patience = 3
         self.scheduler_factory = lambda optimizer: optim.lr_scheduler.ReduceLROnPlateau(optimizer,
@@ -38,6 +38,12 @@ class BaseConfiguration:
         self.dist_loss_type = 'cossim'  # cossim, L2, L1
         self.dist_weight = 0.8
         self.tv_weight = 0.2
+
+        # Test options
+        self.masks_path = os.path.join('..', 'data', 'masks')
+        self.blue_mask_path = os.path.join(self.masks_path, 'blue.png')
+        self.black_mask_path = os.path.join(self.masks_path, 'black.png')
+        self.white_mask_path = os.path.join(self.masks_path, 'white.png')
 
 
 class TrainingOnCluster(BaseConfiguration):

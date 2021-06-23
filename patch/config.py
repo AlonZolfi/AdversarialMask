@@ -18,7 +18,7 @@ class BaseConfiguration:
         # Attack options
         self.patch_size = (256, 256)  # height, width
         self.initial_patch = 'white'  # body, white, random, stripes, l_stripes
-        self.epochs = 5
+        self.epochs = 100
         self.start_learning_rate = 5e-3
         self.es_patience = 3
         self.scheduler_factory = lambda optimizer: optim.lr_scheduler.ReduceLROnPlateau(optimizer,

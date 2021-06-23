@@ -103,11 +103,11 @@ class CustomDataset(Dataset):
 
 
 class CustomDataset1(Dataset):
-    def __init__(self, img_dir, img_size, shuffle=True, transform=None):
+    def __init__(self, img_dir, img_size, indices, shuffle=True, transform=None):
         self.img_dir = img_dir
         self.img_size = img_size
         self.shuffle = shuffle
-        self.img_names = self.get_image_names()
+        self.img_names = self.get_image_names(indices)
         self.transform = transform
 
     def __len__(self):
@@ -118,14 +118,16 @@ class CustomDataset1(Dataset):
         img_path = os.path.join(self.img_dir, self.img_names[idx])
         image = Image.open(img_path).convert('RGB')
 
-        if self.transform:
+        if self.transform is not None:
             image = self.transform(image)
 
         return image, self.img_names[idx]
 
-    def get_image_names(self):
-        png_images = fnmatch.filter(os.listdir(self.img_dir), '*.png')
-        jpg_images = fnmatch.filter(os.listdir(self.img_dir), '*.jpg')
+    def get_image_names(self, indices):
+        files_in_folder = os.listdir(self.img_dir)
+        files_in_folder = [files_in_folder[i] for i in indices]
+        png_images = fnmatch.filter(files_in_folder, '*.png')
+        jpg_images = fnmatch.filter(files_in_folder, '*.jpg')
         return png_images + jpg_images
 
     def get_image_paths(self):

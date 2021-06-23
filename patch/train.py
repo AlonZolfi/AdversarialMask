@@ -16,6 +16,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
+from torch.utils.data import DataLoader
 
 from PIL import Image
 
@@ -62,27 +63,16 @@ class AdversarialMask:
         #                                img_size=self.config.img_size,
         #                                transform=transforms.Compose(
         #                                    [transforms.Resize(self.config.img_size), transforms.ToTensor()]))
-
-        custom_dataset = CustomDataset1(img_dir=self.config.img_dir,
-                                        img_size=self.config.img_size,
-                                        transform=transforms.Compose(
-                                            [transforms.Resize(self.config.img_size), transforms.ToTensor()]))
-
-        self.train_loader, self.val_loader, self.test_loader = SplitDataset(custom_dataset)(
-            val_split=self.config.val_split,
-            test_split=self.config.test_split,
-            shuffle=self.config.shuffle,
-            batch_size=self.config.batch_size)
+        self.train_loader, self.val_loader, self.test_loader = self.get_loaders()
 
         self.embedder = load_embedder(self.config.embedder_name, self.config.embedder_weights_path, device)
 
         face_landmark_detector = self.get_landmark_detector(device)
-        self.location_extractor = LandmarkExtractor(device, face_landmark_detector, self.config.img_size)
+        self.location_extractor = LandmarkExtractor(device, face_landmark_detector, self.config.img_size).to(device)
         # self.preds = self.load_landmarks()
-        self.fxz_projector = FaceXZooProjector(device, self.config.img_size, self.config.patch_size)
-        self.total_variation = TotalVariation(device)
-        self.dist_loss = self.get_loss()
-        self.set_to_device()
+        self.fxz_projector = FaceXZooProjector(device, self.config.img_size, self.config.patch_size).to(device)
+        self.total_variation = TotalVariation(device).to(device)
+        self.dist_loss = self.get_loss().to(device)
 
         self.train_losses = []
         self.dist_losses = []
@@ -99,12 +89,6 @@ class AdversarialMask:
         self.create_folders()
         self.target_embedding = self.get_person_embedding()
         self.best_patch = None
-
-    def set_to_device(self):
-        # self.location_extractor = self.location_extractor.to(device)
-        self.fxz_projector = self.fxz_projector.to(device)
-        self.total_variation = self.total_variation.to(device)
-        self.dist_loss = self.dist_loss.to(device)
 
     def create_folders(self):
         Path('/'.join(self.current_dir.split('/')[:2])).mkdir(parents=True, exist_ok=True)
@@ -347,6 +331,53 @@ class AdversarialMask:
             sd = torch.load('../landmark_detection/pytorch_face_landmark/weights/mobilefacenet_model_best.pth.tar', map_location=device)['state_dict']
             model.load_state_dict(sd)
             return model
+
+    def get_split_indices(self):
+        dataset_size = len(os.listdir(self.config.img_dir))
+        indices = list(range(dataset_size))
+        val_split = int(np.floor(self.config.val_split * dataset_size))
+        test_split = int(np.floor(self.config.test_split * dataset_size))
+        if self.config.shuffle:
+            np.random.shuffle(indices)
+
+        train_indices = indices[val_split + test_split:]
+        val_indices = indices[:val_split]
+        test_indices = indices[val_split:val_split + test_split]
+
+        return train_indices, val_indices, test_indices
+
+    def get_loaders(self):
+        train_indices, val_indices, test_indices = self.get_split_indices()
+        train_dataset = CustomDataset1(img_dir=self.config.img_dir,
+                                       img_size=self.config.img_size,
+                                       indices=train_indices,
+                                       transform=transforms.Compose(
+                                           [transforms.Resize(self.config.img_size),
+                                            transforms.RandomPerspective(distortion_scale=0.2),
+                                            transforms.RandomHorizontalFlip(),
+                                            transforms.RandomRotation(degrees=(-20, 20)),
+                                            transforms.ToTensor()]))
+        val_dataset = CustomDataset1(img_dir=self.config.img_dir,
+                                     img_size=self.config.img_size,
+                                     indices=val_indices,
+                                     transform=transforms.Compose(
+                                         [transforms.Resize(self.config.img_size), transforms.ToTensor()]))
+        test_dataset = CustomDataset1(img_dir=self.config.img_dir,
+                                      img_size=self.config.img_size,
+                                      indices=test_indices,
+                                      transform=transforms.Compose(
+                                          [transforms.Resize(self.config.img_size), transforms.ToTensor()]))
+
+        train_loader = DataLoader(train_dataset, batch_size=self.config.batch_size)
+        validation_loader = DataLoader(val_dataset, batch_size=self.config.batch_size)
+        test_loader = DataLoader(test_dataset)
+
+        return train_loader, validation_loader, test_loader
+        # self.train_loader, self.val_loader, self.test_loader = SplitDataset(custom_dataset)(
+        #     val_split=self.config.val_split,
+        #     test_split=self.config.test_split,
+        #     shuffle=self.config.shuffle,
+        #     batch_size=self.config.batch_size)
 
 
 def main():

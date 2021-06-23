@@ -154,7 +154,8 @@ class AdversarialMask:
         self.plot_separate_loss()
 
     def loss_fn(self, patch_emb, tv_loss):
-        distance_loss = self.config.dist_weight * torch.mean(F.relu(self.dist_loss(patch_emb, self.target_embedding)))
+        distance_loss = self.config.dist_weight * torch.mean(self.dist_loss(patch_emb, self.target_embedding))
+        # distance_loss = self.config.dist_weight * torch.mean(F.relu(self.dist_loss(patch_emb, self.target_embedding)))
         tv_loss = self.config.tv_weight * tv_loss
         total_loss = distance_loss + tv_loss
         return total_loss, [distance_loss, tv_loss]

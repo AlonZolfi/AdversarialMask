@@ -82,12 +82,12 @@ class Evaluator:
                 all_test_image_white = np.concatenate([all_test_image_white, batch_emb_white])
 
         target_embedding = self.adv_mask_class.target_embedding.cpu().numpy()
-        clean_similarity = np.clip(cosine_similarity(all_test_image_clean, target_embedding), a_min=0, a_max=1)
-        adv_similarity = np.clip(cosine_similarity(all_test_image_adv, target_embedding), a_min=0, a_max=1)
-        random_similarity = np.clip(cosine_similarity(all_test_image_random, target_embedding), a_min=0, a_max=1)
-        blue_similarity = np.clip(cosine_similarity(all_test_image_blue, target_embedding), a_min=0, a_max=1)
-        black_similarity = np.clip(cosine_similarity(all_test_image_black, target_embedding), a_min=0, a_max=1)
-        white_similarity = np.clip(cosine_similarity(all_test_image_white, target_embedding), a_min=0, a_max=1)
+        clean_similarity = np.clip(cosine_similarity(all_test_image_clean, target_embedding), a_min=-1, a_max=1)
+        adv_similarity = np.clip(cosine_similarity(all_test_image_adv, target_embedding), a_min=-1, a_max=1)
+        random_similarity = np.clip(cosine_similarity(all_test_image_random, target_embedding), a_min=-1, a_max=1)
+        blue_similarity = np.clip(cosine_similarity(all_test_image_blue, target_embedding), a_min=-1, a_max=1)
+        black_similarity = np.clip(cosine_similarity(all_test_image_black, target_embedding), a_min=-1, a_max=1)
+        white_similarity = np.clip(cosine_similarity(all_test_image_white, target_embedding), a_min=-1, a_max=1)
 
         return clean_similarity, adv_similarity, random_similarity, blue_similarity, black_similarity, white_similarity
 

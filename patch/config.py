@@ -22,7 +22,7 @@ class BaseConfiguration:
         self.start_learning_rate = 3e-3
         self.es_patience = 3
         self.scheduler_factory = lambda optimizer: optim.lr_scheduler.ReduceLROnPlateau(optimizer,
-                                                                                        patience=0,
+                                                                                        patience=1,
                                                                                         mode='min')
         # Landmark detection options
         self.landmark_detector_type = 'mobilefacenet'  # face_alignment, mobilefacenet

@@ -3,7 +3,7 @@ import numpy as np
 import face_alignment
 import sys
 import torch
-sys.path.append('.')
+sys.path.append('')
 from face_alignment.utils import get_image
 
 

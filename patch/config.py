@@ -28,8 +28,8 @@ class BaseConfiguration:
         self.landmark_detector_type = 'mobilefacenet'  # face_alignment, mobilefacenet
         # Embedder options
         self.embedder_name = 'arcface'  # arcface, vggface2, magface
-        self.embedder_weights_path = os.path.join('..', 'arcface_torch', 'weights', 'arcface_resnet100.pth')
-        self.landmark_folder = os.path.join('landmarks',
+        self.embedder_weights_path = os.path.join('..', 'face_recognition', 'arcface_torch', 'weights', 'arcface_resnet100.pth')
+        self.landmark_folder = os.path.join('../landmark_detection/saved_landmarks',
                                             '_'.join([self.dataset_name, self.embedder_name, str(self.img_size[0])]),
                                             self.celeb_lab)
         self.recreate_landmarks = False

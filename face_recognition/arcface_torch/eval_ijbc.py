@@ -19,7 +19,7 @@ from pathlib import Path
 import sys
 import warnings
 
-sys.path.insert(0, "../")
+sys.path.insert(0, "../../")
 warnings.filterwarnings("ignore")
 
 parser = argparse.ArgumentParser(description='do ijb test')

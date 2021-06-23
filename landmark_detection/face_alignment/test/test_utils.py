@@ -1,5 +1,5 @@
 import sys
-sys.path.append('.')
+sys.path.append('')
 import unittest
 from face_alignment.utils import *
 import numpy as np

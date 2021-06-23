@@ -3,24 +3,23 @@ import matplotlib.pyplot as plt
 import torch
 import numpy as np
 import torch.nn.functional as F
-from face_alignment import FaceAlignment, LandmarksType
+from landmark_detection.face_alignment.face_alignment import FaceAlignment
 from torchvision import transforms
 
 import kornia
 from kornia.geometry.homography import find_homography_dlt
 from kornia.losses import total_variation
 
-from prnet import PRNet
+from prnet.prnet import PRNet
 import render
 
 from PIL import Image
 
 
-class LocationExtractor(nn.Module):
+class LandmarkExtractor(nn.Module):
     def __init__(self, device, face_landmark_detector, img_size):
-        super(LocationExtractor, self).__init__()
+        super(LandmarkExtractor, self).__init__()
         self.device = device
-        # self.face_align = FaceAlignment(LandmarksType._2D, device=str(device))
         self.face_align = face_landmark_detector
         self.img_size_width = img_size[1]
         self.img_size_height = img_size[0]

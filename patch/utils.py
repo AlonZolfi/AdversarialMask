@@ -8,8 +8,8 @@ import torch.nn.functional as F
 from torchvision import transforms
 from facenet_pytorch import InceptionResnetV1
 from collections import OrderedDict
-import arcface_torch.backbones.iresnet as AFBackbone
-import magface_torch.backbones as MFBackbone
+import face_recognition.arcface_torch.backbones.iresnet as AFBackbone
+import face_recognition.magface_torch.backbones as MFBackbone
 
 class CustomDataset(Dataset):
     def __init__(self, img_dir, lab_dir, max_lab, img_size, shuffle=True, transform=None):

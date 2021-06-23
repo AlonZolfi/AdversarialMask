@@ -9,12 +9,10 @@ import pickle
 
 import torch
 import numpy as np
-import kornia
 from tqdm import tqdm
 from torchvision import transforms
 from torch.nn import CosineSimilarity, L1Loss, MSELoss
 import torch.nn.functional as F
-from torch.cuda.amp import autocast
 import torch.optim as optim
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
@@ -22,11 +20,11 @@ from matplotlib.ticker import MaxNLocator
 from PIL import Image
 
 from config import patch_config_types
-from nn_modules import LocationExtractor, FaceXZooProjector, TotalVariation
+from nn_modules import LandmarkExtractor, FaceXZooProjector, TotalVariation
 from test import Evaluator
-from utils import SplitDataset, CustomDataset, CustomDataset1, load_embedder, EarlyStopping
-from face_alignment import FaceAlignment, LandmarksType, NetworkSize
-from pytorch_face_landmark.models import mobilefacenet
+from utils import SplitDataset, CustomDataset1, load_embedder, EarlyStopping
+from landmark_detection.face_alignment.face_alignment import FaceAlignment, LandmarksType
+from landmark_detection.pytorch_face_landmark.models import mobilefacenet
 
 global device
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -77,12 +75,9 @@ class AdversarialMask:
             batch_size=self.config.batch_size)
 
         self.embedder = load_embedder(self.config.embedder_name, self.config.embedder_weights_path, device)
-        # self.patch_applier = PatchApplier(self.config.mask_points)
-        # self.transformer = PatchTransformer(device, self.config.img_size, self.config.patch_size)
-        # self.landmarks_applier = LandmarksApplier(self.config.mask_points)
 
         face_landmark_detector = self.get_landmark_detector(device)
-        self.location_extractor = LocationExtractor(device, face_landmark_detector, self.config.img_size)
+        self.location_extractor = LandmarkExtractor(device, face_landmark_detector, self.config.img_size)
         # self.preds = self.load_landmarks()
         self.fxz_projector = FaceXZooProjector(device, self.config.img_size, self.config.patch_size)
         self.total_variation = TotalVariation(device)
@@ -349,7 +344,7 @@ class AdversarialMask:
             return FaceAlignment(LandmarksType._2D, device=str(device))
         elif landmark_detector_type == 'mobilefacenet':
             model = mobilefacenet.MobileFaceNet([112, 112], 136).eval().to(device)
-            sd = torch.load('../pytorch_face_landmark/weights/mobilefacenet_model_best.pth.tar', map_location=device)['state_dict']
+            sd = torch.load('../landmark_detection/pytorch_face_landmark/weights/mobilefacenet_model_best.pth.tar', map_location=device)['state_dict']
             model.load_state_dict(sd)
             return model
 

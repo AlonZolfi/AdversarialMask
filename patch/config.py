@@ -19,10 +19,10 @@ class BaseConfiguration:
         self.patch_size = (256, 256)  # height, width
         self.initial_patch = 'white'  # body, white, random, stripes, l_stripes
         self.epochs = 100
-        self.start_learning_rate = 5e-3
+        self.start_learning_rate = 3e-3
         self.es_patience = 3
         self.scheduler_factory = lambda optimizer: optim.lr_scheduler.ReduceLROnPlateau(optimizer,
-                                                                                        patience=1,
+                                                                                        patience=0,
                                                                                         mode='min')
         # Landmark detection options
         self.landmark_detector_type = 'mobilefacenet'  # face_alignment, mobilefacenet

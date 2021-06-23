@@ -7,9 +7,9 @@ from torch.utils.data import Dataset, SubsetRandomSampler, DataLoader
 import torch.nn.functional as F
 from torchvision import transforms
 from facenet_pytorch import InceptionResnetV1
-import backbones
-from backbones.iresnet import IResNet, IBasicBlock
-
+from collections import OrderedDict
+import arcface_torch.backbones.iresnet as AFBackbone
+import magface_torch.backbones as MFBackbone
 
 class CustomDataset(Dataset):
     def __init__(self, img_dir, lab_dir, max_lab, img_size, shuffle=True, transform=None):
@@ -186,15 +186,29 @@ class SplitDataset:
 
 
 def load_embedder(embedder_name, weights_path, device):
+    embedder_name = embedder_name.lower()
     if embedder_name == 'vggface2':
         embedder = InceptionResnetV1(classify=False, pretrained='vggface2', device=device).eval()
     elif embedder_name == 'arcface':
-        embedder = IResNet(IBasicBlock, [3, 13, 30, 3]).to(device).eval()
-        # embedder = eval("backbones.iresnet100")(False, dropout=0, fp16=False).to(device)
+        embedder = AFBackbone.IResNet(AFBackbone.IBasicBlock, [3, 13, 30, 3]).to(device).eval()
         embedder.load_state_dict(torch.load(weights_path, map_location=device))
+    elif embedder_name == 'magface':
+        embedder = MFBackbone.IResNet(MFBackbone.IBasicBlock, [3, 13, 30, 3]).to(device).eval()
+        sd = torch.load(weights_path, map_location=device)['state_dict']
+        sd_new = rewrite_weights_dict(sd)
+        embedder.load_state_dict(sd_new)
     else:
         raise Exception('Embedder cannot be loaded')
     return embedder
+
+
+def rewrite_weights_dict(sd):
+    sd.pop('fc.weight')
+    sd_new = OrderedDict()
+    for key, value in sd.items():
+        new_key = key.replace('features.module.', '')  # .replace('module.', '')
+        sd_new[new_key] = value
+    return sd_new
 
 
 class EarlyStopping:
@@ -219,6 +233,7 @@ class EarlyStopping:
         self.delta = delta
         self.current_dir = current_dir
         self.best_patch = None
+        self.alpha = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L'))
 
     def __call__(self, val_loss, patch, epoch):
 
@@ -245,11 +260,12 @@ class EarlyStopping:
         """
         if self.verbose:
             print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving patch ...')
-        transforms.ToPILImage()(patch.squeeze(0)).save(self.current_dir +
-                                                       '/saved_patches' +
-                                                       '/patch_' +
-                                                       str(epoch) +
-                                                       '.png', 'PNG')
+        final_patch = torch.cat([patch.squeeze(0), self.alpha])
+        transforms.ToPILImage()(final_patch).save(self.current_dir +
+                                                  '/saved_patches' +
+                                                  '/patch_' +
+                                                  str(epoch) +
+                                                  '.png', 'PNG')
         self.best_patch = patch
         self.val_loss_min = val_loss
 

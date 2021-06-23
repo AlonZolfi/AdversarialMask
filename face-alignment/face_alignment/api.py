@@ -21,9 +21,9 @@ class LandmarksType(IntEnum):
 
 
 class NetworkSize(IntEnum):
-    # TINY = 1
-    # SMALL = 2
-    # MEDIUM = 3
+    TINY = 1
+    SMALL = 2
+    MEDIUM = 3
     LARGE = 4
 
 

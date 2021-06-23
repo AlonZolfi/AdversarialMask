@@ -6,27 +6,28 @@ class BaseConfiguration:
     def __init__(self):
         # Dataset options
         self.patch_name = 'base'
-        self.dataset_name = 'celebA_strip'
+        self.dataset_name = 'celebA_stripa'
         self.celeb_lab = '2820'
         self.img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab)
-        self.val_split = 0.1
-        self.test_split = 0.7
+        self.val_split = 0.2
+        self.test_split = 0.6
         self.shuffle = True
         self.img_size = (112, 112)
         self.batch_size = 2
 
         # Attack options
         self.patch_size = (256, 256)  # height, width
-        self.initial_patch = 'random'
-        self.epochs = 1
-        self.start_learning_rate = 1e-3
+        self.initial_patch = 'white'  # body, white, random, stripes, l_stripes
+        self.epochs = 5
+        self.start_learning_rate = 5e-3
         self.es_patience = 3
         self.scheduler_factory = lambda optimizer: optim.lr_scheduler.ReduceLROnPlateau(optimizer,
-                                                                                        patience=3,
+                                                                                        patience=1,
                                                                                         mode='min')
-
+        # Landmark detection options
+        self.landmark_detector_type = 'mobilefacenet'  # face_alignment, mobilefacenet
         # Embedder options
-        self.embedder_name = 'arcface'  # arcface, vggface2
+        self.embedder_name = 'arcface'  # arcface, vggface2, magface
         self.embedder_weights_path = os.path.join('..', 'arcface_torch', 'weights', 'arcface_resnet100.pth')
         self.landmark_folder = os.path.join('landmarks',
                                             '_'.join([self.dataset_name, self.embedder_name, str(self.img_size[0])]),
@@ -36,11 +37,12 @@ class BaseConfiguration:
 
         # Loss options
         self.dist_loss_type = 'cossim'  # cossim, L2, L1
-        self.dist_weight = 0.8
-        self.tv_weight = 0.2
+        self.dist_weight = 1
+        self.tv_weight = 0
 
         # Test options
         self.masks_path = os.path.join('..', 'data', 'masks')
+        self.random_mask_path = os.path.join(self.masks_path, 'random.png')
         self.blue_mask_path = os.path.join(self.masks_path, 'blue.png')
         self.black_mask_path = os.path.join(self.masks_path, 'black.png')
         self.white_mask_path = os.path.join(self.masks_path, 'white.png')

@@ -7,14 +7,28 @@ from shutil import copyfile
 from collections import Counter
 
 from tqdm import tqdm
+import cv2
+import numpy as np
+from skimage import transform as trans
+
 
 def face_crop_raw_images(input_path, output_path):
-    mtcnn = MTCNN(image_size=112)
+    tform = trans.SimilarityTransform()
+    mtcnn = MTCNN()
+    arcface_src = np.array(
+        [[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366],
+         [41.5493, 92.3655], [70.7299, 92.2041]],
+        dtype=np.float32)
     for folder_name in os.listdir(input_path):
         Path(os.path.join(output_path, folder_name)).mkdir(parents=True, exist_ok=True)
         for image_path in os.listdir(os.path.join(input_path, folder_name)):
-            img = Image.open(os.path.join(input_path, folder_name, image_path))
-            mtcnn(img, save_path=os.path.join(output_path, folder_name, image_path))
+            img = cv2.imread(os.path.join(input_path, folder_name, image_path), cv2.COLOR_BGR2RGB)
+            # mtcnn(img, save_path=os.path.join(output_path, folder_name, image_path))
+            boxes, _, points = mtcnn.detect(img, landmarks=True)
+            tform.estimate(points[0], arcface_src)
+            M = tform.params[0:2, :]
+            cut = cv2.warpAffine(img, M, (112, 112))
+            cv2.imwrite(os.path.join(output_path, folder_name, image_path), cut)
 
 
 def strip_lfw(input_path, output_path):
@@ -23,7 +37,7 @@ def strip_lfw(input_path, output_path):
             copyfile(os.path.join(input_path, folder_name, image_path), os.path.join(output_path, image_path))
 
 
-face_crop_raw_images('../datasets/celebA', '../datasets/celebA_strip')
+face_crop_raw_images('../datasets/celebA', '../datasets/celebA_stripa')
 
 # face_crop_raw_images('../datasets/lfw', '../datasets/lfw_cropped')
 # strip_lfw('../datasets/lfw', '../datasets/lfw_strip')
@@ -44,4 +58,4 @@ def create_celeb_folders(root_path):
         copyfile(os.path.join(root_path, 'img_align_celeba_png', image), os.path.join(target_folder, lab_dict[image], image))
 
 
-create_celeb_folders('../datasets/celebA')
+# create_celeb_folders('../datasets/celebA')

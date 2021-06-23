@@ -25,6 +25,8 @@ from config import patch_config_types
 from nn_modules import LocationExtractor, FaceXZooProjector, TotalVariation
 from test import Evaluator
 from utils import SplitDataset, CustomDataset, CustomDataset1, load_embedder, EarlyStopping
+from face_alignment import FaceAlignment, LandmarksType, NetworkSize
+from pytorch_face_landmark.models import mobilefacenet
 
 global device
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -50,7 +52,7 @@ def set_random_seed(seed_value):
         torch.backends.cudnn.benchmark = False
 
 
-set_random_seed(seed_value=41)
+set_random_seed(seed_value=42)
 
 
 class AdversarialMask:
@@ -79,10 +81,11 @@ class AdversarialMask:
         # self.transformer = PatchTransformer(device, self.config.img_size, self.config.patch_size)
         # self.landmarks_applier = LandmarksApplier(self.config.mask_points)
 
-        self.location_extractor = LocationExtractor(device)
-        self.preds = self.load_landmarks()
+        face_landmark_detector = self.get_landmark_detector(device)
+        self.location_extractor = LocationExtractor(device, face_landmark_detector, self.config.img_size)
+        # self.preds = self.load_landmarks()
         self.fxz_projector = FaceXZooProjector(device, self.config.img_size, self.config.patch_size)
-        self.total_variation = TotalVariation()
+        self.total_variation = TotalVariation(device)
         self.dist_loss = self.get_loss()
         self.set_to_device()
 
@@ -127,7 +130,7 @@ class AdversarialMask:
             dist_loss = 0.0
             tv_loss = 0.0
             progress_bar = tqdm(enumerate(self.train_loader), desc=f'Epoch {epoch}', total=epoch_length)
-            prog_bar_desc = 'train-loss: {:.6}, dist-loss: {:.6}, tv-loss: {:.6}'
+            prog_bar_desc = 'train-loss: {:.6}, dist-loss: {:.6}, tv-loss: {:.6}, lr: {:.6}'
             for i_batch, (img_batch, img_names) in progress_bar:
                 (b_loss, sep_loss), vars = self.forward_step(img_batch, adv_patch_cpu, img_names)
 
@@ -143,7 +146,8 @@ class AdversarialMask:
 
                 progress_bar.set_postfix_str(prog_bar_desc.format(train_loss / (i_batch + 1),
                                                                   dist_loss / (i_batch + 1),
-                                                                  tv_loss / (i_batch + 1)))
+                                                                  tv_loss / (i_batch + 1),
+                                                                  optimizer.param_groups[0]["lr"]))
 
                 if i_batch + 1 == epoch_length:
                     self.calc_validation(adv_patch_cpu)
@@ -152,6 +156,7 @@ class AdversarialMask:
                     progress_bar.set_postfix_str(prog_bar_desc.format(self.train_losses[-1],
                                                                       self.dist_losses[-1],
                                                                       self.tv_losses[-1],
+                                                                      optimizer.param_groups[0]["lr"],
                                                                       self.val_losses[-1]))
                 for var in vars + sep_loss:
                     del var
@@ -170,8 +175,9 @@ class AdversarialMask:
         self.plot_separate_loss()
 
     def loss_fn(self, patch_emb, tv_loss):
-        distance_loss = torch.mean(F.relu(self.dist_loss(patch_emb, self.target_embedding)))
-        total_loss = self.config.dist_weight * distance_loss + self.config.tv_weight * tv_loss
+        distance_loss = self.config.dist_weight * torch.mean(F.relu(self.dist_loss(patch_emb, self.target_embedding)))
+        tv_loss = self.config.tv_weight * tv_loss
+        total_loss = distance_loss + tv_loss
         return total_loss, [distance_loss, tv_loss]
 
     def get_patch(self, p_type):
@@ -183,31 +189,39 @@ class AdversarialMask:
                 patch[0, 2, i, :] = random.randint(0, 255) / 255
         elif p_type =='l_stripes':
             patch = torch.zeros((1, 3, self.config.patch_size[0], self.config.patch_size[1]), dtype=torch.float32)
-            for i in range(int(patch.size()[2]/64)):
-                patch[0, 0, int(patch.size()[2]/4)*i:int(patch.size()[2]/4)*(i+1), :] = random.randint(0, 255) / 255
-                patch[0, 1, int(patch.size()[2]/4)*i:int(patch.size()[2]/4)*(i+1), :] = random.randint(0, 255) / 255
-                patch[0, 2, int(patch.size()[2]/4)*i:int(patch.size()[2]/4)*(i+1), :] = random.randint(0, 255) / 255
+            for i in range(int(patch.size()[2]/16)):
+                patch[0, 0, int(patch.size()[2]/16)*i:int(patch.size()[2]/16)*(i+1), :] = random.randint(0, 255) / 255
+                patch[0, 1, int(patch.size()[2]/16)*i:int(patch.size()[2]/16)*(i+1), :] = random.randint(0, 255) / 255
+                patch[0, 2, int(patch.size()[2]/16)*i:int(patch.size()[2]/16)*(i+1), :] = random.randint(0, 255) / 255
         elif p_type == 'random':
             patch = torch.rand((1, 3, self.config.patch_size[0], self.config.patch_size[1]), dtype=torch.float32)
+        elif p_type == 'white':
+            patch = torch.ones((1, 3, self.config.patch_size[0], self.config.patch_size[1]), dtype=torch.float32)
+        elif p_type == 'body':
+            patch = torch.zeros((1, 3, self.config.patch_size[0], self.config.patch_size[1]), dtype=torch.float32)
+            patch[:, 0] = 1
+            patch[:, 1] = 0.8
+            patch[:, 2] = 0.58
         uv_face = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L'))
         patch = patch * uv_face
         patch.requires_grad_(True)
+        # transforms.ToPILImage()(patch.squeeze(0) * uv_face).save('random.png')
         # transforms.ToPILImage()(patch.squeeze(0) * uv_face).show()
         return patch
 
-    def forward_step(self, img_batch, adv_patch_cpu, img_names):
+    def forward_step(self, img_batch, adv_patch_cpu, img_names, train=True):
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', UserWarning)
             img_batch = img_batch.to(device)
             adv_patch = adv_patch_cpu.to(device)
 
-            # preds = self.location_extractor(img_batch)
-            preds = self.get_batch_landmarks(img_names)
+            preds = self.location_extractor(img_batch)
+            # preds = self.get_batch_landmarks(img_names)
             img_batch_applied = self.fxz_projector(img_batch, preds, adv_patch)
             # img_batch_applied = torch.nn.functional.interpolate(img_batch_applied, 112)
             patch_emb = self.embedder(img_batch_applied)
 
-            tv_loss = self.total_variation(adv_patch)
+            tv_loss = self.total_variation(adv_patch, train)
             loss = self.loss_fn(patch_emb, tv_loss)
 
             return loss, [img_batch, adv_patch, img_batch_applied, patch_emb, tv_loss]
@@ -217,7 +231,7 @@ class AdversarialMask:
         with torch.no_grad():
             for img_batch, img_names in self.val_loader:
                 img_batch = img_batch.to(device)
-                (loss, _), _ = self.forward_step(img_batch, adv_patch_cpu, img_names)
+                (loss, _), _ = self.forward_step(img_batch, adv_patch_cpu, img_names, train=False)
                 val_loss += loss.item()
 
                 del img_batch, loss
@@ -264,7 +278,9 @@ class AdversarialMask:
         plt.close()
 
     def save_final_objects(self):
-        transforms.ToPILImage()(self.best_patch.squeeze(0)).save(
+        alpha = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L'))
+        final_patch = torch.cat([self.best_patch.squeeze(0), alpha])
+        transforms.ToPILImage()(final_patch.squeeze(0)).save(
             self.current_dir + '/final_results/final_patch.png', 'PNG')
         torch.save(self.best_patch, self.current_dir + '/final_results/final_patch_raw.pt')
 
@@ -326,6 +342,16 @@ class AdversarialMask:
         elif self.config.dist_loss_type == 'L1':
             return L1Loss()
         raise ValueError()
+
+    def get_landmark_detector(self, device):
+        landmark_detector_type = self.config.landmark_detector_type
+        if landmark_detector_type == 'face_alignment':
+            return FaceAlignment(LandmarksType._2D, device=str(device))
+        elif landmark_detector_type == 'mobilefacenet':
+            model = mobilefacenet.MobileFaceNet([112, 112], 136).eval().to(device)
+            sd = torch.load('../pytorch_face_landmark/weights/mobilefacenet_model_best.pth.tar', map_location=device)['state_dict']
+            model.load_state_dict(sd)
+            return model
 
 
 def main():

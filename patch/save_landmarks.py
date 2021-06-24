@@ -25,7 +25,7 @@ def save_to_file():
         shuffle=True,
         batch_size=1)
 
-    folder = 'landmarks/celebA/2820'
+    folder = 'saved_landmarks/celebA/2820'
 
     for loader in [train_loader, val_loader, test_loader]:
         for image, img_name in loader:

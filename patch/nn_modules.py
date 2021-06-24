@@ -3,31 +3,39 @@ import matplotlib.pyplot as plt
 import torch
 import numpy as np
 import torch.nn.functional as F
-from face_alignment import FaceAlignment, LandmarksType
+from landmark_detection.face_alignment.face_alignment import FaceAlignment
 from torchvision import transforms
 
 import kornia
 from kornia.geometry.homography import find_homography_dlt
+from kornia.losses import total_variation
 
-from prnet import PRNet
+from prnet.prnet import PRNet
 import render
 
 from PIL import Image
 
 
-class LocationExtractor(nn.Module):
-    def __init__(self, device, img_size):
-        super(LocationExtractor, self).__init__()
+class LandmarkExtractor(nn.Module):
+    def __init__(self, device, face_landmark_detector, img_size):
+        super(LandmarkExtractor, self).__init__()
         self.device = device
-        self.img_size_height = img_size[0]
+        self.face_align = face_landmark_detector
         self.img_size_width = img_size[1]
-        self.face_align = FaceAlignment(LandmarksType._2D, device=str(device))
+        self.img_size_height = img_size[0]
 
     def forward(self, img_batch):
-        with torch.no_grad():
-            points = self.face_align.get_landmarks_from_batch(img_batch * 255)
-        single_face_points = [landmarks[:68] for landmarks in points]
-        preds = torch.tensor(single_face_points, device=self.device)
+        if isinstance(self.face_align, FaceAlignment):
+            with torch.no_grad():
+                points = self.face_align.get_landmarks_from_batch(img_batch * 255)
+            single_face_points = [landmarks[:68] for landmarks in points]
+            preds = torch.tensor(single_face_points, device=self.device)
+        else:
+            with torch.no_grad():
+                preds = self.face_align(img_batch)[0].T.view(img_batch.shape[0], -1, 2)
+                preds[..., 0] = preds[..., 0] * self.img_size_height
+                preds[..., 1] = preds[..., 1] * self.img_size_width
+                preds = preds.type(torch.int)
         return preds
 
 
@@ -43,10 +51,13 @@ class FaceXZooProjector(nn.Module):
         self.uv_mask_src = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L')).to(device)
         self.triangles = torch.from_numpy(np.loadtxt('../prnet/triangles.txt').astype(np.int64)).T.to(device)
 
-    def forward(self, img_batch, landmarks, adv_patch):
+    def forward(self, img_batch, landmarks, adv_patch, uv_mask_src=None):
         pos, vertices = self.get_vertices(landmarks, img_batch)
         texture = kornia.geometry.remap(img_batch, map_x=pos[:, 0], map_y=pos[:, 1], mode='nearest')
-        new_texture = texture * (1 - self.uv_mask_src) + adv_patch * self.uv_mask_src
+        if uv_mask_src is None:
+            new_texture = texture * (1 - self.uv_mask_src) + adv_patch * self.uv_mask_src
+        else:
+            new_texture = texture * (1 - uv_mask_src) + adv_patch * uv_mask_src
         new_colors = self.prn.get_colors_from_texture(new_texture)
         del new_texture, texture, pos
         torch.cuda.empty_cache()
@@ -414,11 +425,26 @@ def read_landmark_106_array(face_lms):
 
 
 class TotalVariation(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, device) -> None:
         super(TotalVariation, self).__init__()
+        self.uv_mask_src = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L')).to(device).squeeze()
+        non_zero_indices = torch.nonzero(self.uv_mask_src)
+        self.left = torch.min(non_zero_indices[..., 1])
+        self.right = torch.max(non_zero_indices[..., 1])
+        self.bottom = torch.min(non_zero_indices[..., 0])
+        self.top = torch.max(non_zero_indices[..., 0])
 
-    def forward(self, adv_patch):
-        h_tv = F.l1_loss(adv_patch[..., 1:, :], adv_patch[..., :-1, :], reduction='mean')  # calc height tv
-        w_tv = F.l1_loss(adv_patch[..., :, 1:], adv_patch[..., :, :-1], reduction='mean')  # calc width tv
-        loss = h_tv + w_tv
+    def forward(self, adv_patch, train=True):
+        tv_patch = adv_patch[..., self.bottom:self.top, self.left:self.right]
+        if train:
+            tv_patch.register_hook(self.zero_grads)
+        # transforms.ToPILImage()(tv_patch.detach().cpu().squeeze()).show()
+        loss = total_variation(tv_patch) / torch.numel(tv_patch)
+        # h_tv = F.l1_loss(adv_patch[..., 1:, :], adv_patch[..., :-1, :], reduction='mean')  # calc height tv
+        # w_tv = F.l1_loss(adv_patch[..., :, 1:], adv_patch[..., :, :-1], reduction='mean')  # calc width tv
+        # loss = h_tv + w_tv
         return loss
+
+    def zero_grads(self, grads):
+        tv_mask = self.uv_mask_src[self.bottom:self.top, self.left:self.right]
+        grads[:, :, tv_mask == 0] = 0

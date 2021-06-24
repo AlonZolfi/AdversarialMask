@@ -7,9 +7,9 @@ from torch.utils.data import Dataset, SubsetRandomSampler, DataLoader
 import torch.nn.functional as F
 from torchvision import transforms
 from facenet_pytorch import InceptionResnetV1
-import backbones
-from backbones.iresnet import IResNet, IBasicBlock
-
+from collections import OrderedDict
+import face_recognition.arcface_torch.backbones.iresnet as AFBackbone
+import face_recognition.magface_torch.backbones as MFBackbone
 
 class CustomDataset(Dataset):
     def __init__(self, img_dir, lab_dir, max_lab, img_size, shuffle=True, transform=None):
@@ -103,11 +103,11 @@ class CustomDataset(Dataset):
 
 
 class CustomDataset1(Dataset):
-    def __init__(self, img_dir, img_size, shuffle=True, transform=None):
+    def __init__(self, img_dir, img_size, indices, shuffle=True, transform=None):
         self.img_dir = img_dir
         self.img_size = img_size
         self.shuffle = shuffle
-        self.img_names = self.get_image_names()
+        self.img_names = self.get_image_names(indices)
         self.transform = transform
 
     def __len__(self):
@@ -118,14 +118,16 @@ class CustomDataset1(Dataset):
         img_path = os.path.join(self.img_dir, self.img_names[idx])
         image = Image.open(img_path).convert('RGB')
 
-        if self.transform:
+        if self.transform is not None:
             image = self.transform(image)
 
         return image, self.img_names[idx]
 
-    def get_image_names(self):
-        png_images = fnmatch.filter(os.listdir(self.img_dir), '*.png')
-        jpg_images = fnmatch.filter(os.listdir(self.img_dir), '*.jpg')
+    def get_image_names(self, indices):
+        files_in_folder = os.listdir(self.img_dir)
+        files_in_folder = [files_in_folder[i] for i in indices]
+        png_images = fnmatch.filter(files_in_folder, '*.png')
+        jpg_images = fnmatch.filter(files_in_folder, '*.jpg')
         return png_images + jpg_images
 
     def get_image_paths(self):
@@ -186,15 +188,29 @@ class SplitDataset:
 
 
 def load_embedder(embedder_name, weights_path, device):
+    embedder_name = embedder_name.lower()
     if embedder_name == 'vggface2':
         embedder = InceptionResnetV1(classify=False, pretrained='vggface2', device=device).eval()
     elif embedder_name == 'arcface':
-        embedder = IResNet(IBasicBlock, [3, 13, 30, 3]).to(device).eval()
-        # embedder = eval("backbones.iresnet100")(False, dropout=0, fp16=False).to(device)
+        embedder = AFBackbone.IResNet(AFBackbone.IBasicBlock, [3, 13, 30, 3]).to(device).eval()
         embedder.load_state_dict(torch.load(weights_path, map_location=device))
+    elif embedder_name == 'magface':
+        embedder = MFBackbone.IResNet(MFBackbone.IBasicBlock, [3, 13, 30, 3]).to(device).eval()
+        sd = torch.load(weights_path, map_location=device)['state_dict']
+        sd_new = rewrite_weights_dict(sd)
+        embedder.load_state_dict(sd_new)
     else:
         raise Exception('Embedder cannot be loaded')
     return embedder
+
+
+def rewrite_weights_dict(sd):
+    sd.pop('fc.weight')
+    sd_new = OrderedDict()
+    for key, value in sd.items():
+        new_key = key.replace('features.module.', '')  # .replace('module.', '')
+        sd_new[new_key] = value
+    return sd_new
 
 
 class EarlyStopping:
@@ -219,6 +235,7 @@ class EarlyStopping:
         self.delta = delta
         self.current_dir = current_dir
         self.best_patch = None
+        self.alpha = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L'))
 
     def __call__(self, val_loss, patch, epoch):
 
@@ -245,11 +262,12 @@ class EarlyStopping:
         """
         if self.verbose:
             print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving patch ...')
-        transforms.ToPILImage()(patch.squeeze(0)).save(self.current_dir +
-                                                       '/saved_patches' +
-                                                       '/patch_' +
-                                                       str(epoch) +
-                                                       '.png', 'PNG')
+        final_patch = torch.cat([patch.squeeze(0), self.alpha])
+        transforms.ToPILImage()(final_patch).save(self.current_dir +
+                                                  '/saved_patches' +
+                                                  '/patch_' +
+                                                  str(epoch) +
+                                                  '.png', 'PNG')
         self.best_patch = patch
         self.val_loss_min = val_loss
 

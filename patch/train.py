@@ -20,12 +20,16 @@ from torch.utils.data import DataLoader
 
 from PIL import Image
 
+import utils
 from config import patch_config_types
 from nn_modules import LandmarkExtractor, FaceXZooProjector, TotalVariation
 from test import Evaluator
-from utils import SplitDataset, CustomDataset1, load_embedder, EarlyStopping
+from utils import SplitDataset, CustomDataset1, load_embedder, EarlyStopping, load_mask, apply_mask
 from landmark_detection.face_alignment.face_alignment import FaceAlignment, LandmarksType
 from landmark_detection.pytorch_face_landmark.models import mobilefacenet
+
+with warnings.catch_warnings():
+    warnings.simplefilter('ignore', UserWarning)
 
 global device
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -57,22 +61,17 @@ set_random_seed(seed_value=42)
 class AdversarialMask:
     def __init__(self, mode):
         self.config = patch_config_types[mode]()
-        # custom_dataset = CustomDataset(img_dir=self.config.img_dir_train_val,
-        #                                lab_dir=self.config.lab_dir_train_val,
-        #                                max_lab=self.config.max_labels_per_img,
-        #                                img_size=self.config.img_size,
-        #                                transform=transforms.Compose(
-        #                                    [transforms.Resize(self.config.img_size), transforms.ToTensor()]))
-        self.train_loader, self.val_loader, self.test_loader = self.get_loaders()
+
+        self.train_no_aug_loader, self.train_loader, self.val_loader, self.test_loader = utils.get_loaders(self.config)
 
         self.embedder = load_embedder(self.config.embedder_name, self.config.embedder_weights_path, device)
 
-        face_landmark_detector = self.get_landmark_detector(device)
+        face_landmark_detector = utils.get_landmark_detector(self.config, device)
         self.location_extractor = LandmarkExtractor(device, face_landmark_detector, self.config.img_size).to(device)
         # self.preds = self.load_landmarks()
         self.fxz_projector = FaceXZooProjector(device, self.config.img_size, self.config.patch_size).to(device)
         self.total_variation = TotalVariation(device).to(device)
-        self.dist_loss = self.get_loss().to(device)
+        self.dist_loss = utils.get_loss(self.config).to(device)
 
         self.train_losses = []
         self.dist_losses = []
@@ -87,7 +86,7 @@ class AdversarialMask:
         else:
             self.current_dir = "experiments/" + month_name + '/' + time.strftime("%d-%m-%Y") + '_' + os.environ['SLURM_JOBID']
         self.create_folders()
-        self.target_embedding = self.get_person_embedding()
+        self.target_embedding = utils.get_person_embedding(self.config,  self.train_no_aug_loader, self, device)
         self.best_patch = None
 
     def create_folders(self):
@@ -99,7 +98,6 @@ class AdversarialMask:
 
     def train(self):
         adv_patch_cpu = self.get_patch(self.config.initial_patch)
-        self.initial_patch = adv_patch_cpu.clone()
         optimizer = optim.Adam([adv_patch_cpu], lr=self.config.start_learning_rate, amsgrad=True)
         scheduler = self.config.scheduler_factory(optimizer)
         early_stop = EarlyStopping(current_dir=self.current_dir, patience=self.config.es_patience)
@@ -190,21 +188,19 @@ class AdversarialMask:
         return patch
 
     def forward_step(self, img_batch, adv_patch_cpu, img_names, train=True):
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore', UserWarning)
-            img_batch = img_batch.to(device)
-            adv_patch = adv_patch_cpu.to(device)
+        img_batch = img_batch.to(device)
+        adv_patch = adv_patch_cpu.to(device)
 
-            preds = self.location_extractor(img_batch)
-            # preds = self.get_batch_landmarks(img_names)
-            img_batch_applied = self.fxz_projector(img_batch, preds, adv_patch)
-            # img_batch_applied = torch.nn.functional.interpolate(img_batch_applied, 112)
-            patch_emb = self.embedder(img_batch_applied)
+        preds = self.location_extractor(img_batch)
+        # preds = self.get_batch_landmarks(img_names)
+        img_batch_applied = self.fxz_projector(img_batch, preds, adv_patch)
+        # img_batch_applied = torch.nn.functional.interpolate(img_batch_applied, 112)
+        patch_emb = self.embedder(img_batch_applied)
 
-            tv_loss = self.total_variation(adv_patch, train)
-            loss = self.loss_fn(patch_emb, tv_loss)
+        tv_loss = self.total_variation(adv_patch, train)
+        loss = self.loss_fn(patch_emb, tv_loss)
 
-            return loss, [img_batch, adv_patch, img_batch_applied, patch_emb, tv_loss]
+        return loss, [img_batch, adv_patch, img_batch_applied, patch_emb, tv_loss]
 
     def calc_validation(self, adv_patch_cpu):
         val_loss = 0.0
@@ -273,18 +269,6 @@ class AdversarialMask:
         with open(self.current_dir + '/losses/tv_losses', 'wb') as fp:
             pickle.dump(self.tv_losses, fp)
 
-    def get_person_embedding(self):
-        with torch.no_grad():
-            person_embeddings = torch.empty(0, device=device)
-            for img_batch, _ in self.train_loader:
-                img_batch = img_batch.to(device)
-                embedding = self.embedder(img_batch)
-                person_embeddings = torch.cat([person_embeddings, embedding], dim=0)
-
-                del img_batch
-                torch.cuda.empty_cache()
-            return person_embeddings.mean(dim=0).unsqueeze(0)
-
     def load_landmarks(self):
         print('Starting landmark prediction')
         landmarks_dict = {}
@@ -313,72 +297,6 @@ class AdversarialMask:
             dict_key_name = img_name.split('.')[0]
             preds = torch.cat([preds, self.preds[dict_key_name]], dim=0)
         return preds
-
-    def get_loss(self):
-        if self.config.dist_loss_type == 'cossim':
-            return CosineSimilarity()
-        elif self.config.dist_loss_type == 'L2':
-            return MSELoss()
-        elif self.config.dist_loss_type == 'L1':
-            return L1Loss()
-        raise ValueError()
-
-    def get_landmark_detector(self, device):
-        landmark_detector_type = self.config.landmark_detector_type
-        if landmark_detector_type == 'face_alignment':
-            return FaceAlignment(LandmarksType._2D, device=str(device))
-        elif landmark_detector_type == 'mobilefacenet':
-            model = mobilefacenet.MobileFaceNet([112, 112], 136).eval().to(device)
-            sd = torch.load('../landmark_detection/pytorch_face_landmark/weights/mobilefacenet_model_best.pth.tar', map_location=device)['state_dict']
-            model.load_state_dict(sd)
-            return model
-
-    def get_split_indices(self):
-        dataset_size = len(os.listdir(self.config.img_dir))
-        indices = list(range(dataset_size))
-        val_split = int(np.floor(self.config.val_split * dataset_size))
-        test_split = int(np.floor(self.config.test_split * dataset_size))
-        if self.config.shuffle:
-            np.random.shuffle(indices)
-
-        train_indices = indices[val_split + test_split:]
-        val_indices = indices[:val_split]
-        test_indices = indices[val_split:val_split + test_split]
-
-        return train_indices, val_indices, test_indices
-
-    def get_loaders(self):
-        train_indices, val_indices, test_indices = self.get_split_indices()
-        train_dataset = CustomDataset1(img_dir=self.config.img_dir,
-                                       img_size=self.config.img_size,
-                                       indices=train_indices,
-                                       transform=transforms.Compose(
-                                           [transforms.Resize(self.config.img_size),
-                                            transforms.RandomPerspective(distortion_scale=0.2),
-                                            transforms.RandomHorizontalFlip(),
-                                            transforms.RandomRotation(degrees=(-20, 20)),
-                                            transforms.ToTensor()]))
-        val_dataset = CustomDataset1(img_dir=self.config.img_dir,
-                                     img_size=self.config.img_size,
-                                     indices=val_indices,
-                                     transform=transforms.Compose(
-                                         [transforms.Resize(self.config.img_size), transforms.ToTensor()]))
-        test_dataset = CustomDataset1(img_dir=self.config.img_dir,
-                                      img_size=self.config.img_size,
-                                      indices=test_indices,
-                                      transform=transforms.Compose(
-                                          [transforms.Resize(self.config.img_size), transforms.ToTensor()]))
-
-        train_loader = DataLoader(train_dataset, batch_size=self.config.batch_size)
-        validation_loader = DataLoader(val_dataset, batch_size=self.config.batch_size)
-        test_loader = DataLoader(test_dataset)
-
-        return train_loader, validation_loader, test_loader
-        # self.train_loader, self.val_loader, self.test_loader = SplitDataset(custom_dataset)(
-        #     val_split=self.config.val_split,
-        #     test_split=self.config.test_split,
-        #     shuffle=self.config.shuffle,
-        #     batch_size=self.config.batch_size)
 
 
 def main():

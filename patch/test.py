@@ -1,5 +1,5 @@
 import warnings
-
+import utils
 import torch
 from torch.nn import CosineSimilarity
 from torchvision import transforms
@@ -23,24 +23,11 @@ class Evaluator:
         self.config = adv_mask_class.config
         self.adv_mask_class = adv_mask_class
         self.transform = transforms.Compose([transforms.Resize(self.config.patch_size), transforms.ToTensor()])
-        self.random_mask_t = self.load_mask(self.config.random_mask_path)
-        self.blue_mask_t = self.load_mask(self.config.blue_mask_path)
-        self.black_mask_t = self.load_mask(self.config.black_mask_path)
-        self.white_mask_t = self.load_mask(self.config.white_mask_path)
+        self.random_mask_t = utils.load_mask(self.config, self.config.random_mask_path, device)
+        self.blue_mask_t = utils.load_mask(self.config, self.config.blue_mask_path, device)
+        self.black_mask_t = utils.load_mask(self.config, self.config.black_mask_path, device)
+        self.white_mask_t = utils.load_mask(self.config, self.config.white_mask_path, device)
         self.mask_names = ['Clean', 'Adv', 'Random', 'Blue', 'Black', 'White']
-
-    @torch.no_grad()
-    def load_mask(self, mask_path):
-        img = Image.open(mask_path)
-        img_t = self.transform(img).unsqueeze(0).to(device)
-        return img_t
-
-    @torch.no_grad()
-    def apply_mask(self, img_batch, img_names, patch_rgb, patch_alpha=None):
-        preds = self.adv_mask_class.location_extractor(img_batch)
-        # preds = self.adv_mask_class.get_batch_landmarks(img_names)
-        img_batch_applied = self.adv_mask_class.fxz_projector(img_batch, preds, patch_rgb, patch_alpha)
-        return img_batch_applied
 
     @torch.no_grad()
     def get_similarity(self):
@@ -56,14 +43,14 @@ class Evaluator:
             for img_batch, img_names in self.adv_mask_class.test_loader:
                 img_batch = img_batch.to(device)
                 # Apply different types of masks
-                img_batch_applied_adv = self.apply_mask(img_batch, img_names, adv_patch)
-                img_batch_applied_random = self.apply_mask(img_batch, img_names, self.random_mask_t)
-                img_batch_applied_blue = self.apply_mask(img_batch, img_names, self.blue_mask_t[:, :3],
-                                                         self.blue_mask_t[:, 3])
-                img_batch_applied_black = self.apply_mask(img_batch, img_names, self.black_mask_t[:, :3],
-                                                          self.black_mask_t[:, 3])
-                img_batch_applied_white = self.apply_mask(img_batch, img_names, self.white_mask_t[:, :3],
-                                                          self.white_mask_t[:, 3])
+                img_batch_applied_adv = utils.apply_mask(self.adv_mask_class, img_batch, adv_patch)
+                img_batch_applied_random = utils.apply_mask(self.adv_mask_class,img_batch, self.random_mask_t)
+                img_batch_applied_blue = utils.apply_mask(self.adv_mask_class,img_batch, self.blue_mask_t[:, :3],
+                                                          self.blue_mask_t[:, 3])
+                img_batch_applied_black = utils.apply_mask(self.adv_mask_class,img_batch, self.black_mask_t[:, :3],
+                                                           self.black_mask_t[:, 3])
+                img_batch_applied_white = utils.apply_mask(self.adv_mask_class,img_batch, self.white_mask_t[:, :3],
+                                                           self.white_mask_t[:, 3])
 
                 # Get embedding
                 batch_emb_clean = self.adv_mask_class.embedder(img_batch.to(device)).cpu().numpy()

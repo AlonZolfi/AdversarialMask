@@ -10,6 +10,10 @@ from facenet_pytorch import InceptionResnetV1
 from collections import OrderedDict
 import face_recognition.arcface_torch.backbones.iresnet as AFBackbone
 import face_recognition.magface_torch.backbones as MFBackbone
+from landmark_detection.face_alignment.face_alignment import FaceAlignment, LandmarksType
+from landmark_detection.pytorch_face_landmark.models import mobilefacenet
+from torch.nn import CosineSimilarity, L1Loss, MSELoss
+
 
 class CustomDataset(Dataset):
     def __init__(self, img_dir, lab_dir, max_lab, img_size, shuffle=True, transform=None):
@@ -272,3 +276,102 @@ class EarlyStopping:
         self.val_loss_min = val_loss
 
 
+@torch.no_grad()
+def apply_mask(adv_mask_class, img_batch, patch_rgb, patch_alpha=None):
+    preds = adv_mask_class.location_extractor(img_batch)
+    img_batch_applied = adv_mask_class.fxz_projector(img_batch, preds, patch_rgb, patch_alpha)
+    return img_batch_applied
+
+
+@torch.no_grad()
+def load_mask(config, mask_path, device):
+    transform = transforms.Compose([transforms.Resize(config.patch_size), transforms.ToTensor()])
+    img = Image.open(mask_path)
+    img_t = transform(img).unsqueeze(0).to(device)
+    return img_t
+
+
+def get_landmark_detector(config, device):
+    landmark_detector_type = config.landmark_detector_type
+    if landmark_detector_type == 'face_alignment':
+        return FaceAlignment(LandmarksType._2D, device=str(device))
+    elif landmark_detector_type == 'mobilefacenet':
+        model = mobilefacenet.MobileFaceNet([112, 112], 136).eval().to(device)
+        sd = torch.load('../landmark_detection/pytorch_face_landmark/weights/mobilefacenet_model_best.pth.tar', map_location=device)['state_dict']
+        model.load_state_dict(sd)
+        return model
+
+
+def get_loss(config):
+    if config.dist_loss_type == 'cossim':
+        return CosineSimilarity()
+    elif config.dist_loss_type == 'L2':
+        return MSELoss()
+    elif config.dist_loss_type == 'L1':
+        return L1Loss()
+
+
+def get_split_indices(config):
+    dataset_size = len(os.listdir(config.img_dir))
+    indices = list(range(dataset_size))
+    val_split = int(np.floor(config.val_split * dataset_size))
+    test_split = int(np.floor(config.test_split * dataset_size))
+    if config.shuffle:
+        np.random.shuffle(indices)
+
+    train_indices = indices[val_split + test_split:]
+    val_indices = indices[:val_split]
+    test_indices = indices[val_split:val_split + test_split]
+
+    return train_indices, val_indices, test_indices
+
+
+def get_loaders(config):
+    train_indices, val_indices, test_indices = get_split_indices(config)
+    train_dataset_no_aug = CustomDataset1(img_dir=config.img_dir,
+                                          img_size=config.img_size,
+                                          indices=train_indices,
+                                          transform=transforms.Compose(
+                                              [transforms.Resize(config.img_size),
+                                               transforms.ToTensor()]))
+    train_dataset = CustomDataset1(img_dir=config.img_dir,
+                                   img_size=config.img_size,
+                                   indices=train_indices,
+                                   transform=transforms.Compose(
+                                       [transforms.RandomPerspective(distortion_scale=0.2),
+                                        transforms.RandomHorizontalFlip(),
+                                        transforms.RandomRotation(degrees=(-20, 20)),
+                                        transforms.Resize(config.img_size),
+                                        transforms.ToTensor()]))
+    val_dataset = CustomDataset1(img_dir=config.img_dir,
+                                 img_size=config.img_size,
+                                 indices=val_indices,
+                                 transform=transforms.Compose(
+                                     [transforms.Resize(config.img_size), transforms.ToTensor()]))
+    test_dataset = CustomDataset1(img_dir=config.img_dir,
+                                  img_size=config.img_size,
+                                  indices=test_indices,
+                                  transform=transforms.Compose(
+                                      [transforms.Resize(config.img_size), transforms.ToTensor()]))
+    train_no_aug_loader = DataLoader(train_dataset_no_aug, batch_size=config.batch_size)
+    train_loader = DataLoader(train_dataset, batch_size=config.batch_size)
+    validation_loader = DataLoader(val_dataset, batch_size=config.batch_size)
+    test_loader = DataLoader(test_dataset)
+
+    return train_no_aug_loader, train_loader, validation_loader, test_loader
+
+
+@torch.no_grad()
+def get_person_embedding(config, loader, adv_mask_class, device):
+    person_embeddings = torch.empty(0, device=device)
+    for mask_path in [None, config.blue_mask_path, config.black_mask_path, config.white_mask_path]:
+        if mask_path is not None:
+            mask_t = load_mask(config, mask_path, device)
+        for img_batch, _ in loader:
+            img_batch = img_batch.to(device)
+            if mask_path is not None:
+                img_batch = apply_mask(adv_mask_class, img_batch, mask_t[:, :3], mask_t[:, 3])
+            # transforms.ToPILImage()(img_batch[0].cpu()).show()
+            embedding = adv_mask_class.embedder(img_batch)
+            person_embeddings = torch.cat([person_embeddings, embedding], dim=0)
+    return person_embeddings.mean(dim=0).unsqueeze(0)

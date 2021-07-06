@@ -12,7 +12,6 @@ import face_recognition.arcface_torch.backbones.iresnet as AFBackbone
 import face_recognition.magface_torch.backbones as MFBackbone
 from landmark_detection.face_alignment.face_alignment import FaceAlignment, LandmarksType
 from landmark_detection.pytorch_face_landmark.models import mobilefacenet
-from torch.nn import CosineSimilarity, L1Loss, MSELoss
 
 
 class CustomDataset(Dataset):
@@ -277,9 +276,9 @@ class EarlyStopping:
 
 
 @torch.no_grad()
-def apply_mask(adv_mask_class, img_batch, patch_rgb, patch_alpha=None):
-    preds = adv_mask_class.location_extractor(img_batch)
-    img_batch_applied = adv_mask_class.fxz_projector(img_batch, preds, patch_rgb, patch_alpha)
+def apply_mask(location_extractor, fxz_projector, img_batch, patch_rgb, patch_alpha=None):
+    preds = location_extractor(img_batch)
+    img_batch_applied = fxz_projector(img_batch, preds, patch_rgb, patch_alpha)
     return img_batch_applied
 
 
@@ -302,15 +301,6 @@ def get_landmark_detector(config, device):
         return model
 
 
-def get_loss(config):
-    if config.dist_loss_type == 'cossim':
-        return CosineSimilarity()
-    elif config.dist_loss_type == 'L2':
-        return MSELoss()
-    elif config.dist_loss_type == 'L1':
-        return L1Loss()
-
-
 def get_split_indices(config):
     dataset_size = len(os.listdir(config.img_dir))
     indices = list(range(dataset_size))
@@ -326,6 +316,20 @@ def get_split_indices(config):
     return train_indices, val_indices, test_indices
 
 
+def get_split_indices_real_images(config):
+    dataset_size = len(os.listdir(config.test_img_dir))
+    indices = list(range(dataset_size))
+    remaining_indices_ratio = 1 - config.val_split - config.test_split
+    val_split = int(np.floor((config.val_split + remaining_indices_ratio*config.val_split) * dataset_size))
+    if config.shuffle:
+        np.random.shuffle(indices)
+
+    val_indices = indices[:val_split]
+    test_indices = indices[val_split:]
+
+    return val_indices, test_indices
+
+
 def get_loaders(config):
     train_indices, val_indices, test_indices = get_split_indices(config)
     train_dataset_no_aug = CustomDataset1(img_dir=config.img_dir,
@@ -338,9 +342,8 @@ def get_loaders(config):
                                    img_size=config.img_size,
                                    indices=train_indices,
                                    transform=transforms.Compose(
-                                       [transforms.RandomPerspective(distortion_scale=0.2),
-                                        transforms.RandomHorizontalFlip(),
-                                        transforms.RandomRotation(degrees=(-20, 20)),
+                                       [transforms.ColorJitter(brightness=0.1, contrast=0.1, hue=0.1),
+                                        # transforms.RandomHorizontalFlip(),
                                         transforms.Resize(config.img_size),
                                         transforms.ToTensor()]))
     val_dataset = CustomDataset1(img_dir=config.img_dir,
@@ -361,17 +364,99 @@ def get_loaders(config):
     return train_no_aug_loader, train_loader, validation_loader, test_loader
 
 
+def get_loaders_real_images(config):
+    val_indices, test_indices = get_split_indices_real_images(config)
+    train_indices = range(len(os.listdir(config.train_img_dir)))
+    train_dataset_no_aug = CustomDataset1(img_dir=config.train_img_dir,
+                                          img_size=config.img_size,
+                                          indices=train_indices,
+                                          transform=transforms.Compose(
+                                              [transforms.Resize(config.img_size),
+                                               transforms.ToTensor()]))
+    train_dataset = CustomDataset1(img_dir=config.train_img_dir,
+                                   img_size=config.img_size,
+                                   indices=train_indices,
+                                   transform=transforms.Compose(
+                                       [transforms.ColorJitter(brightness=0.15, contrast=0.15, hue=0.15),
+                                        transforms.RandomHorizontalFlip(),
+                                        transforms.RandomRotation(degrees=(-15, 15)),
+                                        transforms.Resize(config.img_size),
+                                        transforms.ToTensor()]))
+    val_dataset = CustomDataset1(img_dir=config.test_img_dir,
+                                 img_size=config.img_size,
+                                 indices=val_indices,
+                                 transform=transforms.Compose(
+                                     [transforms.Resize(config.img_size), transforms.ToTensor()]))
+    test_dataset = CustomDataset1(img_dir=config.test_img_dir,
+                                  img_size=config.img_size,
+                                  indices=test_indices,
+                                  transform=transforms.Compose(
+                                      [transforms.Resize(config.img_size), transforms.ToTensor()]))
+    train_no_aug_loader = DataLoader(train_dataset_no_aug, batch_size=config.batch_size)
+    train_loader = DataLoader(train_dataset, batch_size=config.batch_size)
+    validation_loader = DataLoader(val_dataset, batch_size=config.batch_size)
+    test_loader = DataLoader(test_dataset)
+
+    return train_no_aug_loader, train_loader, validation_loader, test_loader
+
+
+def normalize_batch(adv_mask_class, img_batch):
+    preds = adv_mask_class.location_extractor(img_batch)
+    return adv_mask_class.normalize_arcface(img_batch, preds)
+
+
 @torch.no_grad()
-def get_person_embedding(config, loader, adv_mask_class, device):
+def get_person_embedding(config, loader, adv_mask_class, device, include_others=False):
     person_embeddings = torch.empty(0, device=device)
-    for mask_path in [None, config.blue_mask_path, config.black_mask_path, config.white_mask_path]:
+    masks = [None]
+    if include_others:
+        masks.extend([config.blue_mask_path, config.black_mask_path, config.white_mask_path])
+    for mask_path in masks:
         if mask_path is not None:
             mask_t = load_mask(config, mask_path, device)
         for img_batch, _ in loader:
             img_batch = img_batch.to(device)
             if mask_path is not None:
-                img_batch = apply_mask(adv_mask_class, img_batch, mask_t[:, :3], mask_t[:, 3])
-            # transforms.ToPILImage()(img_batch[0].cpu()).show()
+                img_batch = apply_mask(adv_mask_class.location_extractor, adv_mask_class.fxz_projector, img_batch, mask_t[:, :3], mask_t[:, 3])
             embedding = adv_mask_class.embedder(img_batch)
             person_embeddings = torch.cat([person_embeddings, embedding], dim=0)
     return person_embeddings.mean(dim=0).unsqueeze(0)
+
+
+def save_class_to_file(config, current_folder):
+    import json
+    with open(os.path.join(current_folder, 'config.json'), 'w') as config_file:
+        d = dict(vars(config))
+        d.pop('scheduler_factory')
+        json.dump(d, config_file)
+
+
+# def load_landmarks(self):
+#     print('Starting landmark prediction')
+#     landmarks_dict = {}
+#     folder = self.config.landmark_folder
+#     Path(self.config.landmark_folder).mkdir(parents=True, exist_ok=True)
+#     lm_cur_files = os.listdir(folder)
+#     for loader in [self.train_loader, self.val_loader, self.test_loader]:
+#         for image, img_names in loader:
+#             for img_idx in range(len(img_names)):
+#                 file_name = img_names[img_idx].split('.')[0] + '.pt'
+#                 if (file_name not in lm_cur_files) or self.config.recreate_landmarks:
+#                     img = image[img_idx].to(device).unsqueeze(0)
+#                     preds = self.location_extractor(img)
+#                     torch.save(preds, os.path.join(folder, file_name))
+#                 else:
+#                     preds = torch.load(os.path.join(folder, file_name), map_location=device)
+#                 landmarks_dict[file_name.replace('.pt', '')] = preds
+#     del self.location_extractor
+#     torch.cuda.empty_cache()
+#     print('Finished landmark prediction')
+#     return landmarks_dict
+#
+#
+# def get_batch_landmarks(self, img_names):
+#     preds = torch.empty(0, device=device)
+#     for img_name in img_names:
+#         dict_key_name = img_name.split('.')[0]
+#         preds = torch.cat([preds, self.preds[dict_key_name]], dim=0)
+#     return preds

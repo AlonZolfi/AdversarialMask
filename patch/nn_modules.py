@@ -25,6 +25,7 @@ class LandmarkExtractor(nn.Module):
         self.img_size_height = img_size[0]
 
     def forward(self, img_batch):
+        img_batch = F.interpolate(img_batch, (112, 112))
         if isinstance(self.face_align, FaceAlignment):
             with torch.no_grad():
                 points = self.face_align.get_landmarks_from_batch(img_batch * 255)
@@ -133,7 +134,7 @@ class PRN:
         cropped_image = kornia.geometry.warp_perspective(img_batch, tform, dsize=(self.resolution, self.resolution))
 
         cropped_pos = self.net(cropped_image)
-
+        # transforms.ToPILImage()(cropped_pos[0].detach().cpu()).show()
         # restore
         cropped_vertices = (cropped_pos * self.MaxPos).view(cropped_pos.shape[0], 3, -1)
         z = cropped_vertices[:, 2:3, :].clone() / tform[:, :1, :1]
@@ -155,6 +156,21 @@ class PRN:
         colors = all_colors[..., self.face_ind]
         return colors
 
+
+class NormalizeToArcFace(nn.Module):
+    def __init__(self, device):
+        super().__init__()
+        self.five_point_lm_indices = [41, 47, 34, 49, 55]
+        self.arcface_src = torch.tensor([[[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366],
+                                         [41.5493, 92.3655], [70.7299, 92.2041]]]).to(device)
+
+    def forward(self, img_batch, landmarks):
+        transforms.ToPILImage()(img_batch[0].detach().cpu()).show()
+        dst_pts = landmarks[:, self.five_point_lm_indices].type(torch.float32)
+        tform = kornia.geometry.find_homography_dlt(self.arcface_src, dst_pts)
+        normalized = kornia.geometry.transform.warp_affine(img_batch, tform[:, 0:2, :], (112, 112))
+        transforms.ToPILImage()(normalized[0].detach().cpu()).show()
+        return normalized
 
 
 class PatchTransformer(nn.Module):

@@ -6,25 +6,32 @@ class BaseConfiguration:
     def __init__(self):
         # Dataset options
         self.patch_name = 'base'
-        self.dataset_name = 'celebA_stripa'
-        self.celeb_lab = '2820'
+        self.dataset_name = 'celebA_stripA'
+        self.celeb_lab = '3699'  # 2820, 3699, 9040, 9915
+        self.is_real_person = False
         self.img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab)
+        self.train_img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab, 'train')
+        self.test_img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab, 'test')
         self.val_split = 0.2
         self.test_split = 0.6
         self.shuffle = True
         self.img_size = (112, 112)
         self.batch_size = 2
+        self.magnification_ratio = 30
 
         # Attack options
         self.patch_size = (256, 256)  # height, width
         self.initial_patch = 'white'  # body, white, random, stripes, l_stripes
         self.epochs = 100
-        self.start_learning_rate = 5e-3
+        self.start_learning_rate = 1e-2
         self.es_patience = 5
+        self.sc_patience = 1
+        self.sc_min_lr = 1e-6
         self.scheduler_factory = lambda optimizer: optim.lr_scheduler.ReduceLROnPlateau(optimizer,
-                                                                                        factor=0.7,
-                                                                                        patience=0,
+                                                                                        patience=self.sc_patience,
+                                                                                        min_lr=self.sc_min_lr,
                                                                                         mode='min')
+
         # Landmark detection options
         self.landmark_detector_type = 'mobilefacenet'  # face_alignment, mobilefacenet
         # Embedder options
@@ -38,8 +45,8 @@ class BaseConfiguration:
 
         # Loss options
         self.dist_loss_type = 'cossim'  # cossim, L2, L1
-        self.dist_weight = 1
-        self.tv_weight = 0
+        self.dist_weight = 0.7
+        self.tv_weight = 0.3
 
         # Test options
         self.masks_path = os.path.join('..', 'data', 'masks')

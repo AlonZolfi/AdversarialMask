@@ -4,16 +4,18 @@ import os
 
 class BaseConfiguration:
     def __init__(self):
+        self.seed = 1
+
         # Dataset options
         self.patch_name = 'base'
-        self.dataset_name = 'celebA_stripA'
-        self.celeb_lab = '3699'  # 2820, 3699, 9040, 9915
+        self.dataset_name = 'celebA_stripa'
+        self.celeb_lab = '2820'  # 2820, 3699, 9040, 9915
         self.is_real_person = False
         self.img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab)
         self.train_img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab, 'train')
         self.test_img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab, 'test')
-        self.val_split = 0.2
-        self.test_split = 0.6
+        self.val_split = 0
+        self.test_split = 0.98
         self.shuffle = True
         self.img_size = (112, 112)
         self.batch_size = 2
@@ -54,6 +56,9 @@ class BaseConfiguration:
         self.blue_mask_path = os.path.join(self.masks_path, 'blue.png')
         self.black_mask_path = os.path.join(self.masks_path, 'black.png')
         self.white_mask_path = os.path.join(self.masks_path, 'white.png')
+
+    def set_attribute(self, name, value):
+        setattr(self, name, value)
 
 
 class TrainingOnCluster(BaseConfiguration):

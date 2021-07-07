@@ -342,7 +342,7 @@ def get_loaders(config):
                                    img_size=config.img_size,
                                    indices=train_indices,
                                    transform=transforms.Compose(
-                                       [transforms.ColorJitter(brightness=0.1, contrast=0.1, hue=0.1),
+                                       [transforms.ColorJitter(brightness=0.2, contrast=0.2, hue=0.2),
                                         # transforms.RandomHorizontalFlip(),
                                         transforms.Resize(config.img_size),
                                         transforms.ToTensor()]))

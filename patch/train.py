@@ -38,9 +38,6 @@ print('device is {}'.format(device))
 
 if sys.base_prefix.__contains__('home/zolfi'):
     sys.path.append('/home/zolfi/AdversarialMask/patch')
-    sys.path.append('/home/zolfi/AdversarialMask/arcface_torch')
-    sys.path.append('/home/zolfi/AdversarialMask/face-alignment')
-    sys.path.append('/home/zolfi/AdversarialMask/prnet')
     os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
 
@@ -56,12 +53,10 @@ def set_random_seed(seed_value):
         torch.backends.cudnn.benchmark = False
 
 
-set_random_seed(seed_value=42)
-
-
 class AdversarialMask:
-    def __init__(self, mode):
-        self.config = patch_config_types[mode]()
+    def __init__(self, config):
+        self.config = config
+        set_random_seed(seed_value=self.config.seed)
 
         if self.config.is_real_person:
             self.train_no_aug_loader, self.train_loader, self.val_loader, self.test_loader = utils.get_loaders_real_images(self.config)
@@ -288,7 +283,8 @@ class AdversarialMask:
 def main():
     mode = 'private'
     # mode = 'cluster'
-    adv_mask = AdversarialMask(mode)
+    config = patch_config_types[mode]()
+    adv_mask = AdversarialMask(config)
     adv_mask.train()
     evaluator = Evaluator(adv_mask)
     evaluator.test()

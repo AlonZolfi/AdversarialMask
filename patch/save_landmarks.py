@@ -1,4 +1,4 @@
-from face_alignment import FaceAlignment, LandmarksType
+from landmark_detection.face_alignment.face_alignment import FaceAlignment, LandmarksType
 import torch
 from utils import SplitDataset, CustomDataset, CustomDataset1, load_embedder, EarlyStopping
 import os

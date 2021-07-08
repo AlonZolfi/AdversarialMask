@@ -21,15 +21,16 @@ from torch.utils.data import DataLoader
 from PIL import Image
 
 import utils
+import losses
 from config import patch_config_types
-from nn_modules import LandmarkExtractor, FaceXZooProjector, TotalVariation
+from nn_modules import LandmarkExtractor, FaceXZooProjector, TotalVariation, NormalizeToArcFace
 from test import Evaluator
-from utils import SplitDataset, CustomDataset1, load_embedder, EarlyStopping, load_mask, apply_mask
+from utils import SplitDataset, CustomDataset1, load_embedder, EarlyStopping
 from landmark_detection.face_alignment.face_alignment import FaceAlignment, LandmarksType
 from landmark_detection.pytorch_face_landmark.models import mobilefacenet
 
-with warnings.catch_warnings():
-    warnings.simplefilter('ignore', UserWarning)
+import warnings
+warnings.simplefilter('ignore', UserWarning)
 
 global device
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -37,9 +38,6 @@ print('device is {}'.format(device))
 
 if sys.base_prefix.__contains__('home/zolfi'):
     sys.path.append('/home/zolfi/AdversarialMask/patch')
-    sys.path.append('/home/zolfi/AdversarialMask/arcface_torch')
-    sys.path.append('/home/zolfi/AdversarialMask/face-alignment')
-    sys.path.append('/home/zolfi/AdversarialMask/prnet')
     os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
 
@@ -55,14 +53,15 @@ def set_random_seed(seed_value):
         torch.backends.cudnn.benchmark = False
 
 
-set_random_seed(seed_value=42)
-
-
 class AdversarialMask:
-    def __init__(self, mode):
-        self.config = patch_config_types[mode]()
+    def __init__(self, config):
+        self.config = config
+        set_random_seed(seed_value=self.config.seed)
 
-        self.train_no_aug_loader, self.train_loader, self.val_loader, self.test_loader = utils.get_loaders(self.config)
+        if self.config.is_real_person:
+            self.train_no_aug_loader, self.train_loader, self.val_loader, self.test_loader = utils.get_loaders_real_images(self.config)
+        else:
+            self.train_no_aug_loader, self.train_loader, self.val_loader, self.test_loader = utils.get_loaders(self.config)
 
         self.embedder = load_embedder(self.config.embedder_name, self.config.embedder_weights_path, device)
 
@@ -70,8 +69,9 @@ class AdversarialMask:
         self.location_extractor = LandmarkExtractor(device, face_landmark_detector, self.config.img_size).to(device)
         # self.preds = self.load_landmarks()
         self.fxz_projector = FaceXZooProjector(device, self.config.img_size, self.config.patch_size).to(device)
+        self.normalize_arcface = NormalizeToArcFace(device).to(device)
         self.total_variation = TotalVariation(device).to(device)
-        self.dist_loss = utils.get_loss(self.config).to(device)
+        self.dist_loss = losses.get_loss(self.config)
 
         self.train_losses = []
         self.dist_losses = []
@@ -86,7 +86,9 @@ class AdversarialMask:
         else:
             self.current_dir = "experiments/" + month_name + '/' + time.strftime("%d-%m-%Y") + '_' + os.environ['SLURM_JOBID']
         self.create_folders()
+        utils.save_class_to_file(self.config, self.current_dir)
         self.target_embedding = utils.get_person_embedding(self.config,  self.train_no_aug_loader, self, device)
+        self.test_target_embedding = utils.get_person_embedding(self.config,  self.train_no_aug_loader, self, device, False)
         self.best_patch = None
 
     def create_folders(self):
@@ -94,6 +96,7 @@ class AdversarialMask:
         Path(self.current_dir).mkdir(parents=True, exist_ok=True)
         Path(self.current_dir + '/final_results').mkdir(parents=True, exist_ok=True)
         Path(self.current_dir + '/saved_patches').mkdir(parents=True, exist_ok=True)
+        Path(self.current_dir + '/saved_similarities').mkdir(parents=True, exist_ok=True)
         Path(self.current_dir + '/losses').mkdir(parents=True, exist_ok=True)
 
     def train(self):
@@ -127,24 +130,24 @@ class AdversarialMask:
                                                                   optimizer.param_groups[0]["lr"]))
 
                 if i_batch + 1 == epoch_length:
-                    self.calc_validation(adv_patch_cpu)
+                    # self.calc_validation(adv_patch_cpu)
                     self.save_losses(epoch_length, train_loss, dist_loss, tv_loss)
-                    prog_bar_desc += ', val-loss: {:.6}'
+                    # prog_bar_desc += ', val-loss: {:.6}'
                     progress_bar.set_postfix_str(prog_bar_desc.format(self.train_losses[-1],
                                                                       self.dist_losses[-1],
                                                                       self.tv_losses[-1],
-                                                                      optimizer.param_groups[0]["lr"],
-                                                                      self.val_losses[-1]))
+                                                                      optimizer.param_groups[0]["lr"],))
+                                                                      # self.val_losses[-1]))
                 for var in vars + sep_loss:
                     del var
                 del b_loss
                 torch.cuda.empty_cache()
 
-            if early_stop(self.val_losses[-1], adv_patch_cpu, epoch):
+            if early_stop(self.train_losses[-1], adv_patch_cpu, epoch):
                 self.best_patch = adv_patch_cpu
                 break
 
-            scheduler.step(self.val_losses[-1])
+            scheduler.step(self.train_losses[-1])
 
         self.best_patch = early_stop.best_patch
         self.save_final_objects()
@@ -180,6 +183,8 @@ class AdversarialMask:
             patch[:, 0] = 1
             patch[:, 1] = 0.8
             patch[:, 2] = 0.58
+        elif p_type == 'black':
+            patch = torch.zeros((1, 3, self.config.patch_size[0], self.config.patch_size[1]), dtype=torch.float32) + 0.01
         uv_face = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L'))
         patch = patch * uv_face
         patch.requires_grad_(True)
@@ -195,6 +200,7 @@ class AdversarialMask:
         # preds = self.get_batch_landmarks(img_names)
         img_batch_applied = self.fxz_projector(img_batch, preds, adv_patch)
         # img_batch_applied = torch.nn.functional.interpolate(img_batch_applied, 112)
+        # normalized_batch = self.normalize_arcface(img_batch_applied, preds)
         patch_emb = self.embedder(img_batch_applied)
 
         tv_loss = self.total_variation(adv_patch, train)
@@ -226,7 +232,8 @@ class AdversarialMask:
     def plot_train_val_loss(self):
         epochs = [x + 1 for x in range(len(self.train_losses))]
         plt.plot(epochs, self.train_losses, 'b', label='Training loss')
-        plt.plot(epochs, self.val_losses, 'r', label='Validation loss')
+        if len(self.val_losses) > 0:
+            plt.plot(epochs, self.val_losses, 'r', label='Validation loss')
         plt.title('Training and validation loss')
         plt.xlabel('Epoch')
         plt.ylabel('Loss')
@@ -254,10 +261,13 @@ class AdversarialMask:
         plt.close()
 
     def save_final_objects(self):
-        alpha = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L'))
+        alpha = transforms.ToTensor()(Image.open('../prnet/old_uv_templates/new_uv.png').convert('L'))
         final_patch = torch.cat([self.best_patch.squeeze(0), alpha])
-        transforms.ToPILImage()(final_patch.squeeze(0)).save(
-            self.current_dir + '/final_results/final_patch.png', 'PNG')
+        final_patch_img = transforms.ToPILImage()(final_patch.squeeze(0))
+        final_patch_img.save(self.current_dir + '/final_results/final_patch.png', 'PNG')
+        new_size = tuple(self.config.magnification_ratio * s for s in self.config.img_size)
+        transforms.Resize(new_size)(final_patch_img).save(self.current_dir + '/final_results/final_patch_magnified.png', 'PNG')
+
         torch.save(self.best_patch, self.current_dir + '/final_results/final_patch_raw.pt')
 
         with open(self.current_dir + '/losses/train_losses', 'wb') as fp:
@@ -269,40 +279,12 @@ class AdversarialMask:
         with open(self.current_dir + '/losses/tv_losses', 'wb') as fp:
             pickle.dump(self.tv_losses, fp)
 
-    def load_landmarks(self):
-        print('Starting landmark prediction')
-        landmarks_dict = {}
-        folder = self.config.landmark_folder
-        Path(self.config.landmark_folder).mkdir(parents=True, exist_ok=True)
-        lm_cur_files = os.listdir(folder)
-        for loader in [self.train_loader, self.val_loader, self.test_loader]:
-            for image, img_names in loader:
-                for img_idx in range(len(img_names)):
-                    file_name = img_names[img_idx].split('.')[0] + '.pt'
-                    if (file_name not in lm_cur_files) or self.config.recreate_landmarks:
-                        img = image[img_idx].to(device).unsqueeze(0)
-                        preds = self.location_extractor(img)
-                        torch.save(preds, os.path.join(folder, file_name))
-                    else:
-                        preds = torch.load(os.path.join(folder, file_name), map_location=device)
-                    landmarks_dict[file_name.replace('.pt', '')] = preds
-        del self.location_extractor
-        torch.cuda.empty_cache()
-        print('Finished landmark prediction')
-        return landmarks_dict
-
-    def get_batch_landmarks(self, img_names):
-        preds = torch.empty(0, device=device)
-        for img_name in img_names:
-            dict_key_name = img_name.split('.')[0]
-            preds = torch.cat([preds, self.preds[dict_key_name]], dim=0)
-        return preds
-
 
 def main():
     mode = 'private'
     # mode = 'cluster'
-    adv_mask = AdversarialMask(mode)
+    config = patch_config_types[mode]()
+    adv_mask = AdversarialMask(config)
     adv_mask.train()
     evaluator = Evaluator(adv_mask)
     evaluator.test()

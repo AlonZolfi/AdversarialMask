@@ -4,7 +4,7 @@ import os
 
 class BaseConfiguration:
     def __init__(self):
-        self.seed = 1
+        self.seed = 42
 
         # Dataset options
         self.patch_name = 'base'
@@ -15,7 +15,7 @@ class BaseConfiguration:
         self.train_img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab, 'train')
         self.test_img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab, 'test')
         self.val_split = 0
-        self.test_split = 0.98
+        self.test_split = 0.8
         self.shuffle = True
         self.img_size = (112, 112)
         self.batch_size = 2

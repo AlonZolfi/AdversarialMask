@@ -78,12 +78,12 @@ def create_celeb_folders(root_path):
             lab_dict[image_name.replace('jpg', 'png')] = celeb_lab
             # Path(os.path.join(root_path, celeb_lab)).mkdir(parents=True, exist_ok=True)
 
-    value, count = Counter(lab_dict.values()).most_common(1)[0]
-    print('Most common celeb: {} with {} images'.format(value, count))
+    print(Counter(lab_dict.values()).most_common(30))
+    # print('Most common celeb: {} with {} images'.format(value, count))
 
-    target_folder = '../datasets/celebA'
-    for image in tqdm(os.listdir(os.path.join(root_path, 'img_align_celeba_png'))):
-        copyfile(os.path.join(root_path, 'img_align_celeba_png', image), os.path.join(target_folder, lab_dict[image], image))
+    # target_folder = '../datasets/celebA'
+    # for image in tqdm(os.listdir(os.path.join(root_path, 'img_align_celeba_png'))):
+    #     copyfile(os.path.join(root_path, 'img_align_celeba_png', image), os.path.join(target_folder, lab_dict[image], image))
 
 
-# create_celeb_folders('../datasets/celebA')
+# create_celeb_folders('../../Datasets/CelebA')

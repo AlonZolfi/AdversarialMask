@@ -67,8 +67,8 @@ def strip_lfw(input_path, output_path):
 
 # face_crop_raw_images('../datasets/celebA', '../datasets/celebA_stripa')
 
-# face_crop_raw_images('../datasets/lfw', '../datasets/lfw_cropped')
-# strip_lfw('../datasets/lfw', '../datasets/lfw_strip')
+# face_crop_raw_images('../datasets/lfw.csv', '../datasets/lfw_cropped')
+# strip_lfw('../datasets/lfw.csv', '../datasets/lfw_strip')
 
 def create_celeb_folders(root_path):
     lab_dict = {}

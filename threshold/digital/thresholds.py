@@ -15,7 +15,7 @@ from torch.nn import CosineSimilarity
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
 from tqdm import tqdm
-
+from sklearn import metrics
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -46,6 +46,7 @@ def raw_to_df(pairs_path, img_root_dir):
                 image_1 = img_root_dir + splitted_line[0] + '/' + splitted_line[0] + greater_than_ten(splitted_line[1]) + '.jpg'
                 image_2 = img_root_dir + splitted_line[2] + '/' + splitted_line[2] + greater_than_ten(splitted_line[3]) + '.jpg'
                 new_row = pd.Series([image_1, image_2, False], index=df.columns)
+
             if new_row is not None:
                 df = df.append(new_row, ignore_index=True)
     return df
@@ -80,44 +81,54 @@ def calc_optimal_threshold(pairs_path, img_root_dir):
     # pairs_df = pd.read_csv(pairs_path, nrows=10000000)
     pairs_df = raw_to_df(pairs_path, img_root_dir)
     embedder = load_embedder('arcface',
-                             os.path.join('face_recognition', 'arcface_torch', 'weights', 'arcface_resnet100.pth'),
+                             os.path.join('../../face_recognition', 'arcface_torch', 'weights', 'arcface_resnet100.pth'),
                              device)
-    results_df = pd.DataFrame(columns=['tp_mean', 'tp_std', 'fp_mean', 'fp_std', 'threshold', 'tn', 'fp', 'fn', 'tp', 'precision', 'recall', 'f1', 'accuracy'])
-    for seed in [42]:
-        np.random.seed(seed)
-        # sample_df = equal_sample_from_df(pairs_df, N)
-        sample_df = pairs_df
-        loader = DataLoader(dataset=PairsDataset(sample_df), shuffle=False, batch_size=8)
-        sims = pd.Series(dtype=np.float64)
-        cos_sim = CosineSimilarity()
-        for img_batch1, img_batch2 in tqdm(loader):
-            emb1 = embedder(img_batch1)
-            emb2 = embedder(img_batch2)
-            sim = cos_sim(emb1, emb2)
-            sims = sims.append(pd.Series(np.round(sim.cpu().numpy(), 4)), ignore_index=True)
-        sample_df['similarity'] = sims.values
-        tp_mean = round(sample_df[sample_df.same].similarity.mean(), 4)
-        tp_std = round(sample_df[sample_df.same].similarity.std(), 4)
-        fp_mean = round(sample_df[~sample_df.same].similarity.mean(), 4)
-        fp_std = round(sample_df[~sample_df.same].similarity.std(), 4)
-        sample_df[sample_df.same].similarity.plot.kde()
-        sample_df[~sample_df.same].similarity.plot.kde()
-        plt.show()
-        num_of_sigmas = 2
-        threshold = round(tp_mean - num_of_sigmas * tp_std, 4)
-        sample_df["prediction"] = False  # init
-        idx = sample_df[sample_df.similarity >= threshold].index
-        sample_df.loc[idx, 'prediction'] = True
-        cm = confusion_matrix(sample_df.same.values, sample_df.prediction.values)
-        print(cm)
-        tn, fp, fn, tp = cm.ravel()
-        recall = tp / (tp + fn)
-        precision = tp / (tp + fp)
-        accuracy = (tp + tn) / (tn + fp + fn + tp)
-        f1 = 2 * (precision * recall) / (precision + recall)
-        results = pd.Series(data=[tp_mean, tp_std, fp_mean, fp_std, threshold, tn, fp, fn, tp, precision, recall, f1, accuracy], index=results_df.columns)
-        results_df = results_df.append(results, ignore_index=True)
-    results_df.to_csv('threshold.csv', index=False)
+    loader = DataLoader(dataset=PairsDataset(pairs_df), shuffle=False, batch_size=64)
+    sims = pd.Series(dtype=np.float64)
+    cos_sim = CosineSimilarity()
+    for img_batch1, img_batch2 in tqdm(loader):
+        emb1 = embedder(img_batch1)
+        emb2 = embedder(img_batch2)
+        sim = cos_sim(emb1, emb2)
+        sims = sims.append(pd.Series(sim.cpu().numpy()), ignore_index=True)
+    pairs_df['similarity'] = sims.values
+    pairs_df.to_csv('pairs_with_sim.csv', index=False)
+    y_true = pairs_df.same.astype(int)
+    preds = pairs_df.similarity.astype(int)
+
+    fpr, tpr, thresholds = metrics.roc_curve(y_true, preds)
+    auc_score = metrics.roc_auc_score(y_true, preds)
+    plot_roc(tpr, fpr, auc_score)
+    threshold_idx = np.argmin(np.square(tpr - 0.95))
+    threshold = thresholds[threshold_idx]
+    print('threshold: ', threshold)
+    calc_final_results(pairs_df, threshold)
+
+
+def calc_final_results(df, threshold):
+    df["prediction"] = False  # init
+    idx = df[df.similarity >= threshold].index
+    df.loc[idx, 'prediction'] = True
+    cm = confusion_matrix(df.same.values.astype(bool), df.prediction.values)
+    print(cm)
+    tn, fp, fn, tp = cm.ravel()
+    recall = tp / (tp + fn)
+    precision = tp / (tp + fp)
+    accuracy = (tp + tn) / (tn + fp + fn + tp)
+    f1 = 2 * (precision * recall) / (precision + recall)
+    print('precision: {}, recall: {}, accuracy: {}, f1: {}'.format(precision, recall, accuracy, f1))
+
+
+def plot_roc(tpr, fpr, roc_auc):
+    plt.title('Receiver Operating Characteristic')
+    plt.plot(fpr, tpr, 'b', label='AUC = %0.2f' % roc_auc)
+    plt.legend(loc='lower right')
+    plt.plot([0, 1], [0, 1], 'r--')
+    plt.xlim([0, 1])
+    plt.ylim([0, 1])
+    plt.ylabel('True Positive Rate')
+    plt.xlabel('False Positive Rate')
+    plt.show()
 
 
 class PairsDataset(Dataset):
@@ -152,4 +163,23 @@ class PairsDataset(Dataset):
         return cut_t
 
 
-calc_optimal_threshold('pairs.txt', 'datasets/lfw/')
+calc_optimal_threshold('lfw_pairs.txt', '../../datasets/lfw/')
+
+
+def filter_images(root_path):
+    imgs_full_path = glob.glob(root_path + '/**/*.jpg', recursive=True) + \
+                     glob.glob(root_path + '/**/*.png', recursive=True)
+    mtcnn = MTCNN()
+    bad_imgs = []
+    for img_path in imgs_full_path:
+        image = cv2.imread(img_path, cv2.IMREAD_COLOR)
+        _, _, points = mtcnn.detect(cv2.cvtColor(image, cv2.COLOR_BGR2RGB), landmarks=True)
+        if points is None:
+            bad_imgs.append(img_path)
+    print(len(bad_imgs))
+    with open('bad_images.txt', 'w') as f:
+        for bad_img in bad_imgs:
+            f.write(bad_img)
+
+
+# filter_images('datasets/lfw')

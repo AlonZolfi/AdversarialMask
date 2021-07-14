@@ -278,7 +278,7 @@ class EarlyStopping:
 @torch.no_grad()
 def apply_mask(location_extractor, fxz_projector, img_batch, patch_rgb, patch_alpha=None):
     preds = location_extractor(img_batch)
-    img_batch_applied = fxz_projector(img_batch, preds, patch_rgb, patch_alpha)
+    img_batch_applied = fxz_projector(img_batch, preds, patch_rgb, uv_mask_src=patch_alpha)
     return img_batch_applied
 
 

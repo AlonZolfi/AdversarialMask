@@ -1,6 +1,7 @@
 import torch.nn as nn
 import matplotlib.pyplot as plt
 import torch
+import math
 import numpy as np
 import torch.nn.functional as F
 from landmark_detection.face_alignment.face_alignment import FaceAlignment
@@ -49,16 +50,20 @@ class FaceXZooProjector(nn.Module):
         self.patch_size_width = patch_size[1]
         self.patch_size_height = patch_size[0]
         self.device = device
-        self.uv_mask_src = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L')).to(device)
+        self.uv_mask_src = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L')).to(device).unsqueeze(0)
+        self.uv_face_src = transforms.ToTensor()(Image.open('../prnet/uv_face_mask.png').convert('L')).to(device).unsqueeze(0)
         self.triangles = torch.from_numpy(np.loadtxt('../prnet/triangles.txt').astype(np.int64)).T.to(device)
+        self.minangle = -10 / 180 * math.pi
+        self.maxangle = 10 / 180 * math.pi
+        self.min_trans_x = -0.05
+        self.min_trans_y = -0.15
+        self.max_trans_x = 0.05
+        self.max_trans_y = 0.03
 
-    def forward(self, img_batch, landmarks, adv_patch, uv_mask_src=None):
+    def forward(self, img_batch, landmarks, adv_patch, uv_mask_src=None, do_aug=False):
         pos, vertices = self.get_vertices(landmarks, img_batch)
         texture = kornia.geometry.remap(img_batch, map_x=pos[:, 0], map_y=pos[:, 1], mode='nearest')
-        if uv_mask_src is None:
-            new_texture = texture * (1 - self.uv_mask_src) + adv_patch * self.uv_mask_src
-        else:
-            new_texture = texture * (1 - uv_mask_src) + adv_patch * uv_mask_src
+        new_texture = self.get_new_texture(texture, adv_patch, uv_mask_src, do_aug)
         new_colors = self.prn.get_colors_from_texture(new_texture)
         del new_texture, texture, pos
         torch.cuda.empty_cache()
@@ -74,8 +79,8 @@ class FaceXZooProjector(nn.Module):
                                 torch.zeros(1, device=self.device))
         new_image = img_batch * (1 - face_mask) + (new_image * face_mask)
         new_image = torch.clamp(new_image, 0, 1)  # must clip to (-1, 1)!
-        # for i in range(new_image.shape[0]):
-        #     transforms.ToPILImage()(new_image[i]).show()
+        for i in range(new_image.shape[0]):
+            transforms.ToPILImage()(new_image[i]).show()
         return new_image
 
     def get_vertices(self, face_lms, image):
@@ -88,6 +93,31 @@ class FaceXZooProjector(nn.Module):
         pos = self.prn.process(image, face_lms)
         vertices = self.prn.get_vertices(pos)
         return pos, vertices
+
+    def get_new_texture(self, texture, adv_patch, uv_mask_src, do_aug):
+        if uv_mask_src is None:
+            uv_mask_src = self.uv_mask_src
+        if do_aug:
+            merged = torch.cat([adv_patch, uv_mask_src], dim=1)
+            merged_aug = self.apply_random_grid_sample(merged)
+            adv_patch = merged_aug[:, :3]
+            uv_mask_src = merged_aug[:, 3]
+        uv_face_src = self.uv_face_src - uv_mask_src
+        new_texture = adv_patch * (1 - uv_face_src) + texture * uv_face_src
+        return new_texture
+
+    def apply_random_grid_sample(self, face_mask):
+        theta = torch.zeros((face_mask.shape[0], 2, 3), dtype=torch.float, device=self.device)
+        rand_angle = torch.empty(face_mask.shape[0], device=self.device).uniform_(self.minangle, self.maxangle)
+        theta[:, 0, 0] = torch.cos(rand_angle)
+        theta[:, 0, 1] = -torch.sin(rand_angle)
+        theta[:, 1, 1] = torch.cos(rand_angle)
+        theta[:, 1, 0] = torch.sin(rand_angle)
+        theta[:, 0, 2].uniform_(self.min_trans_x, self.max_trans_x)  # move x
+        theta[:, 1, 2].uniform_(self.min_trans_y, self.max_trans_y)  # move y
+        grid = F.affine_grid(theta, list(face_mask.size()))
+        augmented = F.grid_sample(face_mask, grid, padding_mode='border')
+        return augmented
 
 
 class PRN:

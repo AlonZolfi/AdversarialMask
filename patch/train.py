@@ -191,7 +191,7 @@ class AdversarialMask:
 
         preds = self.location_extractor(img_batch)
         # preds = self.get_batch_landmarks(img_names)
-        img_batch_applied = self.fxz_projector(img_batch, preds, adv_patch)
+        img_batch_applied = self.fxz_projector(img_batch, preds, adv_patch, do_aug=True)
         # img_batch_applied = torch.nn.functional.interpolate(img_batch_applied, 112)
         # normalized_batch = self.normalize_arcface(img_batch_applied, preds)
         patch_emb = self.embedder(img_batch_applied)

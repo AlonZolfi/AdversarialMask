@@ -26,8 +26,8 @@ class BaseConfiguration:
 
         # Attack options
         self.patch_size = (256, 256)  # height, width
-        self.initial_patch = 'white'  # body, white, random, stripes, l_stripes
-        self.epochs = 100
+        self.initial_patch = 'l_stripes'  # body, white, random, stripes, l_stripes
+        self.epochs = 1
         self.start_learning_rate = 1e-2
         self.es_patience = 5
         self.sc_patience = 1

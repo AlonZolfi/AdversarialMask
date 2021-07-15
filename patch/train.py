@@ -78,32 +78,25 @@ class AdversarialMask:
         self.tv_losses = []
         self.val_losses = []
 
-        my_date = datetime.datetime.now()
-        month_name = my_date.strftime("%B")
-        if 'SLURM_JOBID' not in os.environ.keys():
-            self.current_dir = "experiments/" + month_name + '/' + time.strftime("%d-%m-%Y") + '_' + time.strftime(
-                "%H-%M-%S")
-        else:
-            self.current_dir = "experiments/" + month_name + '/' + time.strftime("%d-%m-%Y") + '_' + os.environ['SLURM_JOBID']
         self.create_folders()
-        utils.save_class_to_file(self.config, self.current_dir)
+        utils.save_class_to_file(self.config, self.config.current_dir)
         self.target_embedding = utils.get_person_embedding(self.config,  self.train_no_aug_loader, self, device)
         self.test_target_embedding = utils.get_person_embedding(self.config,  self.train_no_aug_loader, self, device, False)
         self.best_patch = None
 
     def create_folders(self):
-        Path('/'.join(self.current_dir.split('/')[:2])).mkdir(parents=True, exist_ok=True)
-        Path(self.current_dir).mkdir(parents=True, exist_ok=True)
-        Path(self.current_dir + '/final_results').mkdir(parents=True, exist_ok=True)
-        Path(self.current_dir + '/saved_patches').mkdir(parents=True, exist_ok=True)
-        Path(self.current_dir + '/saved_similarities').mkdir(parents=True, exist_ok=True)
-        Path(self.current_dir + '/losses').mkdir(parents=True, exist_ok=True)
+        Path('/'.join(self.config.current_dir.split('/')[:2])).mkdir(parents=True, exist_ok=True)
+        Path(self.config.current_dir).mkdir(parents=True, exist_ok=True)
+        Path(self.config.current_dir + '/final_results').mkdir(parents=True, exist_ok=True)
+        Path(self.config.current_dir + '/saved_patches').mkdir(parents=True, exist_ok=True)
+        Path(self.config.current_dir + '/saved_similarities').mkdir(parents=True, exist_ok=True)
+        Path(self.config.current_dir + '/losses').mkdir(parents=True, exist_ok=True)
 
     def train(self):
         adv_patch_cpu = self.get_patch(self.config.initial_patch)
         optimizer = optim.Adam([adv_patch_cpu], lr=self.config.start_learning_rate, amsgrad=True)
         scheduler = self.config.scheduler_factory(optimizer)
-        early_stop = EarlyStopping(current_dir=self.current_dir, patience=self.config.es_patience)
+        early_stop = EarlyStopping(current_dir=self.config.current_dir, patience=self.config.es_patience)
         epoch_length = len(self.train_loader)
         for epoch in range(self.config.epochs):
             train_loss = 0.0
@@ -238,7 +231,7 @@ class AdversarialMask:
         plt.xlabel('Epoch')
         plt.ylabel('Loss')
         plt.legend(loc='upper right')
-        plt.savefig(self.current_dir + '/final_results/train_val_loss_plt.png')
+        plt.savefig(self.config.current_dir + '/final_results/train_val_loss_plt.png')
         plt.close()
 
     def plot_separate_loss(self):
@@ -257,26 +250,26 @@ class AdversarialMask:
                 axes[0, idx].xaxis.set_major_locator(MaxNLocator(integer=True))
                 idx += 1
         fig.tight_layout()
-        plt.savefig(self.current_dir + '/final_results/separate_loss_plt.png')
+        plt.savefig(self.config.current_dir + '/final_results/separate_loss_plt.png')
         plt.close()
 
     def save_final_objects(self):
         alpha = transforms.ToTensor()(Image.open('../prnet/old_uv_templates/new_uv.png').convert('L'))
         final_patch = torch.cat([self.best_patch.squeeze(0), alpha])
         final_patch_img = transforms.ToPILImage()(final_patch.squeeze(0))
-        final_patch_img.save(self.current_dir + '/final_results/final_patch.png', 'PNG')
+        final_patch_img.save(self.config.current_dir + '/final_results/final_patch.png', 'PNG')
         new_size = tuple(self.config.magnification_ratio * s for s in self.config.img_size)
-        transforms.Resize(new_size)(final_patch_img).save(self.current_dir + '/final_results/final_patch_magnified.png', 'PNG')
+        transforms.Resize(new_size)(final_patch_img).save(self.config.current_dir + '/final_results/final_patch_magnified.png', 'PNG')
 
-        torch.save(self.best_patch, self.current_dir + '/final_results/final_patch_raw.pt')
+        torch.save(self.best_patch, self.config.current_dir + '/final_results/final_patch_raw.pt')
 
-        with open(self.current_dir + '/losses/train_losses', 'wb') as fp:
+        with open(self.config.current_dir + '/losses/train_losses', 'wb') as fp:
             pickle.dump(self.train_losses, fp)
-        with open(self.current_dir + '/losses/val_losses', 'wb') as fp:
+        with open(self.config.current_dir + '/losses/val_losses', 'wb') as fp:
             pickle.dump(self.val_losses, fp)
-        with open(self.current_dir + '/losses/dist_losses', 'wb') as fp:
+        with open(self.config.current_dir + '/losses/dist_losses', 'wb') as fp:
             pickle.dump(self.dist_losses, fp)
-        with open(self.current_dir + '/losses/tv_losses', 'wb') as fp:
+        with open(self.config.current_dir + '/losses/tv_losses', 'wb') as fp:
             pickle.dump(self.tv_losses, fp)
 
 

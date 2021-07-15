@@ -1,5 +1,7 @@
 from torch import optim
 import os
+import datetime
+import time
 
 
 class BaseConfiguration:
@@ -9,11 +11,12 @@ class BaseConfiguration:
         # Dataset options
         self.patch_name = 'base'
         self.dataset_name = 'celebA_stripa'
-        self.celeb_lab = '2820'  # 2820, 3699, 9040, 9915
+        self.celeb_lab = '9915'  # 2820, 3699, 9040, 9915
         self.is_real_person = False
         self.img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab)
         self.train_img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab, 'train')
         self.test_img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab, 'test')
+        self.num_of_train_images = 0
         self.val_split = 0
         self.test_split = 0.8
         self.shuffle = True
@@ -47,8 +50,8 @@ class BaseConfiguration:
 
         # Loss options
         self.dist_loss_type = 'cossim'  # cossim, L2, L1
-        self.dist_weight = 0.7
-        self.tv_weight = 0.3
+        self.dist_weight = 0.8
+        self.tv_weight = 0.2
 
         # Test options
         self.masks_path = os.path.join('..', 'data', 'masks')
@@ -57,9 +60,20 @@ class BaseConfiguration:
         self.black_mask_path = os.path.join(self.masks_path, 'black.png')
         self.white_mask_path = os.path.join(self.masks_path, 'white.png')
 
+        self.update_current_dir()
+
     def set_attribute(self, name, value):
         setattr(self, name, value)
 
+    def update_current_dir(self):
+        my_date = datetime.datetime.now()
+        month_name = my_date.strftime("%B")
+        if 'SLURM_JOBID' not in os.environ.keys():
+            self.current_dir = "experiments/" + month_name + '/' + time.strftime("%d-%m-%Y") + '_' + time.strftime(
+                "%H-%M-%S")
+        else:
+            self.current_dir = "experiments/" + month_name + '/' + time.strftime("%d-%m-%Y") + '_' + os.environ[
+                'SLURM_JOBID']
 
 class TrainingOnCluster(BaseConfiguration):
     def __init__(self):

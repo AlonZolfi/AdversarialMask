@@ -69,13 +69,15 @@ class Evaluator:
     def plot_sim_box(self, similarities):
         sim_df = pd.DataFrame()
         for i in range(len(similarities)):
-            sim_df[self.mask_names[i]] = similarities[i].squeeze()
+            sim_df[self.mask_names[i]] = (similarities[i].squeeze() + 1) / 2
         sorted_index = sim_df.mean().sort_values(ascending=False).index
         sim_df_sorted = sim_df[sorted_index]
-        sns.boxplot(data=sim_df_sorted).set_title('Similarities Difference')
+        sns.boxplot(data=sim_df_sorted).set_title('Similarities for Different Masks')
+        plt.axhline(y=0.55, color='red', linestyle='--', label='System Threshold')
         plt.xlabel('Mask Type')
-        plt.ylabel('Similarity')
-        plt.savefig(self.adv_mask_class.current_dir + '/final_results/sim-boxes.png')
+        plt.ylabel('Normalized Similarity')
+        plt.legend()
+        plt.savefig(self.config.current_dir + '/final_results/sim-boxes.png')
 
     '''def get_pr(self, similarities):
         y_true = np.ones(similarities[0].shape[0])
@@ -115,7 +117,7 @@ class Evaluator:
                                    black_similarity, white_similarity):
         for similarity, mask_name in zip([clean_similarity, adv_similarity, random_similarity, blue_similarity,
                                           black_similarity, white_similarity], self.mask_names):
-            with open(os.path.join(self.adv_mask_class.current_dir, 'saved_similarities', mask_name + '.npy'), 'wb') as f:
+            with open(os.path.join(self.config.current_dir, 'saved_similarities', mask_name + '.npy'), 'wb') as f:
                 np.save(f, similarity)
 
     def apply_all_masks(self, img_batch, adv_patch):

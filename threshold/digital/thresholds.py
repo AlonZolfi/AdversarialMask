@@ -33,7 +33,8 @@ def get_all_pairs(root_path, output_path):
 
 def raw_to_df(pairs_path, img_root_dir):
     df = pd.DataFrame(columns=['path1', 'path2', 'same'])
-    with open(pairs_path, 'r') as f:
+    with open(pairs_path, 'r') as f, open('threshold/digital/bad_images.txt', 'r') as bad:
+        bad_images = bad.read().splitlines()
         for line in f:
             new_row = None
             splitted_line = line.strip('\n').split('\t')
@@ -48,7 +49,8 @@ def raw_to_df(pairs_path, img_root_dir):
                 new_row = pd.Series([image_1, image_2, False], index=df.columns)
 
             if new_row is not None:
-                df = df.append(new_row, ignore_index=True)
+                if new_row[0] not in bad_images and new_row[1] not in bad_images:
+                    df = df.append(new_row, ignore_index=True)
     return df
 
 
@@ -77,11 +79,9 @@ def equal_sample_from_df(pairs_df, N):
 
 @torch.no_grad()
 def calc_optimal_threshold(pairs_path, img_root_dir):
-    N = 500
-    # pairs_df = pd.read_csv(pairs_path, nrows=10000000)
-    pairs_df = raw_to_df(pairs_path, img_root_dir)
+    '''pairs_df = raw_to_df(pairs_path, img_root_dir)
     embedder = load_embedder('arcface',
-                             os.path.join('../../face_recognition', 'arcface_torch', 'weights', 'arcface_resnet100.pth'),
+                             'face_recognition/arcface_torch/weights/arcface_resnet100.pth',
                              device)
     loader = DataLoader(dataset=PairsDataset(pairs_df), shuffle=False, batch_size=64)
     sims = pd.Series(dtype=np.float64)
@@ -92,14 +92,15 @@ def calc_optimal_threshold(pairs_path, img_root_dir):
         sim = cos_sim(emb1, emb2)
         sims = sims.append(pd.Series(sim.cpu().numpy()), ignore_index=True)
     pairs_df['similarity'] = sims.values
-    pairs_df.to_csv('pairs_with_sim.csv', index=False)
-    y_true = pairs_df.same.astype(int)
-    preds = pairs_df.similarity.astype(int)
+    pairs_df.to_csv('threshold/digital/pairs_with_sim.csv', index=False)'''
+    pairs_df = pd.read_csv('threshold/digital/pairs_with_sim.csv')
+    y_true = pairs_df.same.values.astype(int)
+    preds = (pairs_df.similarity.values + 1) / 2
 
     fpr, tpr, thresholds = metrics.roc_curve(y_true, preds)
     auc_score = metrics.roc_auc_score(y_true, preds)
     plot_roc(tpr, fpr, auc_score)
-    threshold_idx = np.argmin(np.square(tpr - 0.95))
+    threshold_idx = np.argmin(np.square(fpr - 0.05))
     threshold = thresholds[threshold_idx]
     print('threshold: ', threshold)
     calc_final_results(pairs_df, threshold)
@@ -121,14 +122,14 @@ def calc_final_results(df, threshold):
 
 def plot_roc(tpr, fpr, roc_auc):
     plt.title('Receiver Operating Characteristic')
-    plt.plot(fpr, tpr, 'b', label='AUC = %0.2f' % roc_auc)
+    plt.plot(fpr, tpr, 'b', label='AUC = %0.3f' % roc_auc)
     plt.legend(loc='lower right')
     plt.plot([0, 1], [0, 1], 'r--')
     plt.xlim([0, 1])
     plt.ylim([0, 1])
     plt.ylabel('True Positive Rate')
     plt.xlabel('False Positive Rate')
-    plt.show()
+    plt.savefig('threshold/digital/roc.png')
 
 
 class PairsDataset(Dataset):
@@ -155,15 +156,22 @@ class PairsDataset(Dataset):
         image = cv2.imread(img_path, cv2.IMREAD_COLOR)
         _, _, points = self.mtcnn.detect(cv2.cvtColor(image, cv2.COLOR_BGR2RGB), landmarks=True)
         if points is not None:
-            self.tform.estimate(points[0], self.arcface_src)
+            p = points[0]
+            if len(points) > 1:
+                p_idx = np.argmin((points[:, 2, 0] - image.shape[1]/2)**2 + (points[:, 2, 1] - image.shape[0]/2)**2)
+                p = points[p_idx]
+            self.tform.estimate(p, self.arcface_src)
             M = self.tform.params[0:2, :]
             image = cv2.warpAffine(image, M, (112, 112))
         cut = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) / 255
         cut_t = torch.from_numpy(cut).permute(2, 0, 1).type(torch.float32).to(device)
+        if len(points) > 1:
+            from torchvision import transforms
+            transforms.ToPILImage()(cut_t).show()
         return cut_t
 
 
-calc_optimal_threshold('lfw_pairs.txt', '../../datasets/lfw/')
+calc_optimal_threshold('threshold/digital/lfw_pairs.txt', 'datasets/lfw/')
 
 
 def filter_images(root_path):
@@ -174,12 +182,13 @@ def filter_images(root_path):
     for img_path in imgs_full_path:
         image = cv2.imread(img_path, cv2.IMREAD_COLOR)
         _, _, points = mtcnn.detect(cv2.cvtColor(image, cv2.COLOR_BGR2RGB), landmarks=True)
-        if points is None:
+        if points is None or len(points) > 1:
             bad_imgs.append(img_path)
     print(len(bad_imgs))
     with open('bad_images.txt', 'w') as f:
         for bad_img in bad_imgs:
             f.write(bad_img)
+            f.write('\n')
 
 
 # filter_images('datasets/lfw')

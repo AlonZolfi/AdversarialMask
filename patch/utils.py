@@ -304,14 +304,19 @@ def get_landmark_detector(config, device):
 def get_split_indices(config):
     dataset_size = len(os.listdir(config.img_dir))
     indices = list(range(dataset_size))
-    val_split = int(np.floor(config.val_split * dataset_size))
-    test_split = int(np.floor(config.test_split * dataset_size))
     if config.shuffle:
         np.random.shuffle(indices)
 
-    train_indices = indices[val_split + test_split:]
-    val_indices = indices[:val_split]
-    test_indices = indices[val_split:val_split + test_split]
+    if config.num_of_train_images > 0:
+        train_indices = indices[:config.num_of_train_images]
+        val_indices = []
+        test_indices = indices[config.num_of_train_images:]
+    else:
+        val_split = int(np.floor(config.val_split * dataset_size))
+        test_split = int(np.floor(config.test_split * dataset_size))
+        train_indices = indices[val_split + test_split:]
+        val_indices = indices[:val_split]
+        test_indices = indices[val_split:val_split + test_split]
 
     return train_indices, val_indices, test_indices
 

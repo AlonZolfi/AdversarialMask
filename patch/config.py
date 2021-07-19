@@ -10,13 +10,13 @@ class BaseConfiguration:
 
         # Dataset options
         self.patch_name = 'base'
-        self.dataset_name = 'celebA_stripa'
-        self.celeb_lab = '9915'  # 2820, 3699, 9040, 9915
+        self.dataset_name = 'CASIA-WebFace_aligned'
+        self.celeb_lab = '0000506'  # 2820, 3699, 9040, 9915
         self.is_real_person = False
         self.img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab)
         self.train_img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab, 'train')
         self.test_img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab, 'test')
-        self.num_of_train_images = 0
+        self.num_of_train_images = 7
         self.val_split = 0
         self.test_split = 0.8
         self.shuffle = True
@@ -26,11 +26,11 @@ class BaseConfiguration:
 
         # Attack options
         self.patch_size = (256, 256)  # height, width
-        self.initial_patch = 'l_stripes'  # body, white, random, stripes, l_stripes
-        self.epochs = 1
+        self.initial_patch = 'white'  # body, white, random, stripes, l_stripes
+        self.epochs = 100
         self.start_learning_rate = 1e-2
-        self.es_patience = 5
-        self.sc_patience = 1
+        self.es_patience = 10
+        self.sc_patience = 3
         self.sc_min_lr = 1e-6
         self.scheduler_factory = lambda optimizer: optim.lr_scheduler.ReduceLROnPlateau(optimizer,
                                                                                         patience=self.sc_patience,
@@ -50,8 +50,8 @@ class BaseConfiguration:
 
         # Loss options
         self.dist_loss_type = 'cossim'  # cossim, L2, L1
-        self.dist_weight = 0.8
-        self.tv_weight = 0.2
+        self.dist_weight = 0.99
+        self.tv_weight = 0.01
 
         # Test options
         self.masks_path = os.path.join('..', 'data', 'masks')

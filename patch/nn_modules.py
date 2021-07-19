@@ -53,11 +53,11 @@ class FaceXZooProjector(nn.Module):
         self.uv_mask_src = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L')).to(device).unsqueeze(0)
         self.uv_face_src = transforms.ToTensor()(Image.open('../prnet/uv_face_mask.png').convert('L')).to(device).unsqueeze(0)
         self.triangles = torch.from_numpy(np.loadtxt('../prnet/triangles.txt').astype(np.int64)).T.to(device)
-        self.minangle = -10 / 180 * math.pi
-        self.maxangle = 10 / 180 * math.pi
-        self.min_trans_x = -0.05
-        self.min_trans_y = -0.15
-        self.max_trans_x = 0.05
+        self.minangle = -3 / 180 * math.pi
+        self.maxangle = 3 / 180 * math.pi
+        self.min_trans_x = -0.03
+        self.max_trans_x = 0.03
+        self.min_trans_y = -0.03
         self.max_trans_y = 0.03
 
     def forward(self, img_batch, landmarks, adv_patch, uv_mask_src=None, do_aug=False):
@@ -79,8 +79,8 @@ class FaceXZooProjector(nn.Module):
                                 torch.zeros(1, device=self.device))
         new_image = img_batch * (1 - face_mask) + (new_image * face_mask)
         new_image = torch.clamp(new_image, 0, 1)  # must clip to (-1, 1)!
-        for i in range(new_image.shape[0]):
-            transforms.ToPILImage()(new_image[i]).show()
+        # for i in range(new_image.shape[0]):
+        #     transforms.ToPILImage()(new_image[i]).show()
         return new_image
 
     def get_vertices(self, face_lms, image):

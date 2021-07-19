@@ -10,12 +10,12 @@ class BaseConfiguration:
 
         # Dataset options
         self.patch_name = 'base'
-        self.dataset_name = 'CASIA-WebFace_aligned'
-        self.celeb_lab = '0000506'  # 2820, 3699, 9040, 9915
+        self.dataset_name = 'celebA_aligned'
+        self.celeb_lab = ['3699']  # 2820, 3699, 9040, 9915
         self.is_real_person = False
-        self.img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab)
-        self.train_img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab, 'train')
-        self.test_img_dir = os.path.join('..', 'datasets', self.dataset_name, self.celeb_lab, 'test')
+        self.img_dir = os.path.join('..', 'datasets', self.dataset_name)
+        self.train_img_dir = os.path.join('..', 'datasets', self.dataset_name, 'train')
+        self.test_img_dir = os.path.join('..', 'datasets', self.dataset_name, 'test')
         self.num_of_train_images = 7
         self.val_split = 0
         self.test_split = 0.8
@@ -27,7 +27,7 @@ class BaseConfiguration:
         # Attack options
         self.patch_size = (256, 256)  # height, width
         self.initial_patch = 'white'  # body, white, random, stripes, l_stripes
-        self.epochs = 100
+        self.epochs = 1
         self.start_learning_rate = 1e-2
         self.es_patience = 10
         self.sc_patience = 3
@@ -42,9 +42,9 @@ class BaseConfiguration:
         # Embedder options
         self.embedder_name = 'arcface'  # arcface, vggface2, magface
         self.embedder_weights_path = os.path.join('..', 'face_recognition', 'arcface_torch', 'weights', 'arcface_resnet100.pth')
-        self.landmark_folder = os.path.join('../landmark_detection/saved_landmarks',
-                                            '_'.join([self.dataset_name, self.embedder_name, str(self.img_size[0])]),
-                                            self.celeb_lab)
+        # self.landmark_folder = os.path.join('../landmark_detection/saved_landmarks',
+        #                                     '_'.join([self.dataset_name, self.embedder_name, str(self.img_size[0])]),
+        #                                     self.celeb_lab)
         self.recreate_landmarks = False
         self.same_person_threshold = 0.4
 

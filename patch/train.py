@@ -104,8 +104,8 @@ class AdversarialMask:
             tv_loss = 0.0
             progress_bar = tqdm(enumerate(self.train_loader), desc=f'Epoch {epoch}', total=epoch_length)
             prog_bar_desc = 'train-loss: {:.6}, dist-loss: {:.6}, tv-loss: {:.6}, lr: {:.6}'
-            for i_batch, (img_batch, img_names) in progress_bar:
-                (b_loss, sep_loss), vars = self.forward_step(img_batch, adv_patch_cpu, img_names)
+            for i_batch, (img_batch, img_names, cls_id) in progress_bar:
+                (b_loss, sep_loss), vars = self.forward_step(img_batch, adv_patch_cpu, img_names, cls_id)
 
                 train_loss += b_loss.item()
                 dist_loss += sep_loss[0].item()
@@ -147,9 +147,9 @@ class AdversarialMask:
         self.plot_train_val_loss()
         self.plot_separate_loss()
 
-    def loss_fn(self, patch_emb, tv_loss):
-        distance_loss = self.config.dist_weight * torch.mean(self.dist_loss(patch_emb, self.target_embedding))
-        # distance_loss = self.config.dist_weight * torch.mean(F.relu(self.dist_loss(patch_emb, self.target_embedding)))
+    def loss_fn(self, patch_emb, tv_loss, cls_id):
+        target_embeddings = torch.index_select(self.target_embedding, index=cls_id, dim=0)
+        distance_loss = self.config.dist_weight * torch.mean(self.dist_loss(patch_emb, target_embeddings))
         tv_loss = self.config.tv_weight * tv_loss
         total_loss = distance_loss + tv_loss
         return total_loss, [distance_loss, tv_loss]
@@ -185,28 +185,27 @@ class AdversarialMask:
         # transforms.ToPILImage()(patch.squeeze(0) * uv_face).show()
         return patch
 
-    def forward_step(self, img_batch, adv_patch_cpu, img_names, train=True):
+    def forward_step(self, img_batch, adv_patch_cpu, img_names, cls_id, train=True):
         img_batch = img_batch.to(device)
         adv_patch = adv_patch_cpu.to(device)
 
         preds = self.location_extractor(img_batch)
-        # preds = self.get_batch_landmarks(img_names)
+
         img_batch_applied = self.fxz_projector(img_batch, preds, adv_patch, do_aug=True)
-        # img_batch_applied = torch.nn.functional.interpolate(img_batch_applied, 112)
-        # normalized_batch = self.normalize_arcface(img_batch_applied, preds)
+
         patch_emb = self.embedder(img_batch_applied)
 
         tv_loss = self.total_variation(adv_patch, train)
-        loss = self.loss_fn(patch_emb, tv_loss)
+        loss = self.loss_fn(patch_emb, tv_loss, cls_id)
 
         return loss, [img_batch, adv_patch, img_batch_applied, patch_emb, tv_loss]
 
     def calc_validation(self, adv_patch_cpu):
         val_loss = 0.0
         with torch.no_grad():
-            for img_batch, img_names in self.val_loader:
+            for img_batch, img_names, cls_id in self.val_loader:
                 img_batch = img_batch.to(device)
-                (loss, _), _ = self.forward_step(img_batch, adv_patch_cpu, img_names, train=False)
+                (loss, _), _ = self.forward_step(img_batch, adv_patch_cpu, img_names, cls_id, train=False)
                 val_loss += loss.item()
 
                 del img_batch, loss

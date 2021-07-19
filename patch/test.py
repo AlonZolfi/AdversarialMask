@@ -36,9 +36,10 @@ class Evaluator:
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', UserWarning)
             all_test_image_clean, all_test_image_adv, all_test_image_random, all_test_image_blue, all_test_image_black, all_test_image_white = self.init_embeddings()
+            cls_ids = torch.empty(0)
 
             adv_patch = self.adv_mask_class.best_patch.to(device)
-            for img_batch, img_names in tqdm(self.adv_mask_class.test_loader):
+            for img_batch, img_names, cls_id in tqdm(self.adv_mask_class.test_loader):
                 img_batch = img_batch.to(device)
                 # Apply different types of masks
                 img_batch_applied_adv, img_batch_applied_random, img_batch_applied_blue, img_batch_applied_black, img_batch_applied_white = \
@@ -53,8 +54,10 @@ class Evaluator:
                     self.save_all_embeddings(all_test_image_clean, all_test_image_adv, all_test_image_random, all_test_image_blue, all_test_image_black, all_test_image_white,
                         batch_emb_clean, batch_emb_adv, batch_emb_random, batch_emb_blue, batch_emb_black, batch_emb_white)
 
+                cls_ids = torch.hstack([cls_ids, cls_id])
+
         clean_similarity, adv_similarity, random_similarity, blue_similarity, black_similarity, white_similarity = \
-            self.calc_all_similarity(all_test_image_clean, all_test_image_adv, all_test_image_random, all_test_image_blue, all_test_image_black, all_test_image_white)
+            self.calc_all_similarity(all_test_image_clean, all_test_image_adv, all_test_image_random, all_test_image_blue, all_test_image_black, all_test_image_white, cls_ids)
 
         return clean_similarity, adv_similarity, random_similarity, blue_similarity, black_similarity, white_similarity
 
@@ -162,8 +165,8 @@ class Evaluator:
         return all_test_image_clean, all_test_image_adv, all_test_image_random, all_test_image_blue, all_test_image_black, all_test_image_white
 
     def calc_all_similarity(self, all_test_image_clean, all_test_image_adv, all_test_image_random, all_test_image_blue,
-                            all_test_image_black, all_test_image_white):
-        target_embedding = self.adv_mask_class.test_target_embedding.cpu().numpy()
+                            all_test_image_black, all_test_image_white, cls_ids):
+        target_embedding = torch.index_select(self.adv_mask_class.test_target_embedding, index=cls_ids.type(torch.int32), dim=0).cpu().numpy()
         clean_similarity = cosine_similarity(all_test_image_clean, target_embedding)
         adv_similarity = cosine_similarity(all_test_image_adv, target_embedding)
         random_similarity = cosine_similarity(all_test_image_random, target_embedding)

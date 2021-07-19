@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import fnmatch
+import glob
 from PIL import Image
 import torch
 from torch.utils.data import Dataset, SubsetRandomSampler, DataLoader
@@ -106,8 +107,9 @@ class CustomDataset(Dataset):
 
 
 class CustomDataset1(Dataset):
-    def __init__(self, img_dir, img_size, indices, shuffle=True, transform=None):
+    def __init__(self, img_dir, celeb_lab, img_size, indices, shuffle=True, transform=None):
         self.img_dir = img_dir
+        self.celeb_labs = {lab: i for i, lab in enumerate(celeb_lab)}
         self.img_size = img_size
         self.shuffle = shuffle
         self.img_names = self.get_image_names(indices)
@@ -118,49 +120,21 @@ class CustomDataset1(Dataset):
 
     def __getitem__(self, idx):
         assert idx <= len(self), 'index range error'
-        img_path = os.path.join(self.img_dir, self.img_names[idx])
+        img_path = self.img_names[idx]
+        celeb_lab = img_path.split(os.path.sep)[-2]
         image = Image.open(img_path).convert('RGB')
 
         if self.transform is not None:
             image = self.transform(image)
 
-        return image, self.img_names[idx]
+        return image, self.img_names[idx], self.celeb_labs[celeb_lab]
 
     def get_image_names(self, indices):
-        files_in_folder = os.listdir(self.img_dir)
+        files_in_folder = get_dataset_files(self.img_dir, self.celeb_labs.keys())
         files_in_folder = [files_in_folder[i] for i in indices]
         png_images = fnmatch.filter(files_in_folder, '*.png')
         jpg_images = fnmatch.filter(files_in_folder, '*.jpg')
         return png_images + jpg_images
-
-    def get_image_paths(self):
-        img_paths = []
-        for img_name in self.img_names:
-            img_paths.append(os.path.join(self.img_dir, img_name))
-        return img_paths
-
-    def pad_and_scale(self, img, lab):
-        w, h = img.size
-        if w == h:
-            padded_img = img
-        else:
-            dim_to_pad = 1 if w < h else 2
-            if dim_to_pad == 1:
-                padding = (h - w) / 2
-                padded_img = Image.new('RGB', (h, h), color=(255, 255, 255))
-                padded_img.paste(img, (int(padding), 0))
-                lab[:, [1]] = (lab[:, [1]] * w + padding) / h
-                lab[:, [3]] = (lab[:, [3]] * w / h)
-            else:
-                padding = (w - h) / 2
-                padded_img = Image.new('RGB', (w, w), color=(255, 255, 255))
-                padded_img.paste(img, (0, int(padding)))
-                lab[:, [2]] = (lab[:, [2]] * h + padding) / w
-                lab[:, [4]] = (lab[:, [4]] * h / w)
-        resize = transforms.Resize(self.img_size)
-        padded_img = resize(padded_img)  # choose here
-
-        return padded_img, lab
 
 
 class SplitDataset:
@@ -301,16 +275,23 @@ def get_landmark_detector(config, device):
         return model
 
 
+def get_dataset_files(img_dir, person_labs):
+    files_in_folder = [glob.glob(os.path.join(img_dir, lab, '**/*.*g'), recursive=True) for lab in person_labs]
+    files_in_folder = [item for sublist in files_in_folder for item in sublist]
+    return files_in_folder
+
+
 def get_split_indices(config):
-    dataset_size = len(os.listdir(config.img_dir))
+    dataset_size = len(get_dataset_files(config.img_dir, config.celeb_lab))
     indices = list(range(dataset_size))
     if config.shuffle:
         np.random.shuffle(indices)
 
     if config.num_of_train_images > 0:
-        train_indices = indices[:config.num_of_train_images]
+        num_of_train_images = config.num_of_train_images * len(config.celeb_lab)
+        train_indices = indices[:num_of_train_images]
         val_indices = []
-        test_indices = indices[config.num_of_train_images:]
+        test_indices = indices[num_of_train_images:]
     else:
         val_split = int(np.floor(config.val_split * dataset_size))
         test_split = int(np.floor(config.test_split * dataset_size))
@@ -338,12 +319,14 @@ def get_split_indices_real_images(config):
 def get_loaders(config):
     train_indices, val_indices, test_indices = get_split_indices(config)
     train_dataset_no_aug = CustomDataset1(img_dir=config.img_dir,
+                                          celeb_lab=config.celeb_lab,
                                           img_size=config.img_size,
                                           indices=train_indices,
                                           transform=transforms.Compose(
                                               [transforms.Resize(config.img_size),
                                                transforms.ToTensor()]))
     train_dataset = CustomDataset1(img_dir=config.img_dir,
+                                   celeb_lab=config.celeb_lab,
                                    img_size=config.img_size,
                                    indices=train_indices,
                                    transform=transforms.Compose(
@@ -352,11 +335,13 @@ def get_loaders(config):
                                         transforms.Resize(config.img_size),
                                         transforms.ToTensor()]))
     val_dataset = CustomDataset1(img_dir=config.img_dir,
+                                 celeb_lab=config.celeb_lab,
                                  img_size=config.img_size,
                                  indices=val_indices,
                                  transform=transforms.Compose(
                                      [transforms.Resize(config.img_size), transforms.ToTensor()]))
     test_dataset = CustomDataset1(img_dir=config.img_dir,
+                                  celeb_lab=config.celeb_lab,
                                   img_size=config.img_size,
                                   indices=test_indices,
                                   transform=transforms.Compose(
@@ -412,20 +397,22 @@ def normalize_batch(adv_mask_class, img_batch):
 
 @torch.no_grad()
 def get_person_embedding(config, loader, adv_mask_class, device, include_others=False):
-    person_embeddings = torch.empty(0, device=device)
+    person_embeddings = {i: torch.empty(0, device=device) for i in range(len(config.celeb_lab))}
     masks = [None]
     if include_others:
         masks.extend([config.blue_mask_path, config.black_mask_path, config.white_mask_path])
     for mask_path in masks:
         if mask_path is not None:
             mask_t = load_mask(config, mask_path, device)
-        for img_batch, _ in loader:
+        for img_batch, _, idx in loader:
             img_batch = img_batch.to(device)
             if mask_path is not None:
                 img_batch = apply_mask(adv_mask_class.location_extractor, adv_mask_class.fxz_projector, img_batch, mask_t[:, :3], mask_t[:, 3])
             embedding = adv_mask_class.embedder(img_batch)
-            person_embeddings = torch.cat([person_embeddings, embedding], dim=0)
-    return person_embeddings.mean(dim=0).unsqueeze(0)
+            person_embeddings[idx.item()] = torch.cat([person_embeddings[idx.item()], embedding], dim=0)
+    final_embeddings = [person_emb.mean(dim=0).unsqueeze(0) for person_emb in person_embeddings.values()]
+    final_embeddings = torch.stack(final_embeddings)
+    return final_embeddings
 
 
 def save_class_to_file(config, current_folder):

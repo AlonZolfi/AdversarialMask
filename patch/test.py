@@ -147,7 +147,7 @@ class Evaluator:
         for emb_name in self.config.embedder_name:
             sims[emb_name] = []
             for i, mask_name in enumerate(self.mask_names):
-                with open(os.path.join(self.config.current_dir, 'saved_similarities', sim_type + '_' + mask_name + '.pickle'), 'rb') as f:
+                with open(os.path.join(self.config.current_dir, 'saved_similarities', emb_name, sim_type + '_' + mask_name + '.pickle'), 'rb') as f:
                     sims[emb_name].append([])
                     while True:
                         try:

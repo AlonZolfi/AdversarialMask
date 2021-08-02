@@ -84,7 +84,7 @@ class AdversarialMask:
 
         self.create_folders()
         utils.save_class_to_file(self.config, self.config.current_dir)
-        self.test_target_embedding = utils.get_person_embedding(self.config,  self.train_no_aug_loader, self, device, include_others=False)
+        self.test_target_embedding = utils.get_person_embedding(self.config,  self.train_no_aug_loader, self, device, include_others=True)
         self.target_embedding = utils.get_person_embedding(self.config,  self.train_no_aug_loader, self, device)
         self.best_patch = None
 
@@ -152,7 +152,7 @@ class AdversarialMask:
         self.plot_separate_loss()
 
     def loss_fn(self, patch_embs, tv_loss, cls_id):
-        distance_loss = torch.empty(0)
+        distance_loss = torch.empty(0, device=device)
         for target_embedding, (emb_name, patch_emb) in zip(self.target_embedding.values(), patch_embs.items()):
             target_embeddings = torch.index_select(target_embedding, index=cls_id, dim=0).squeeze(-2)
             distance = self.dist_loss(patch_emb, target_embeddings)

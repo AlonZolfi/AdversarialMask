@@ -31,7 +31,7 @@ class BaseConfiguration:
         self.mask_aug = True
         self.patch_size = (256, 256)  # height, width
         self.initial_patch = 'white'  # body, white, random, stripes, l_stripes
-        self.epochs = 0
+        self.epochs = 5
         self.start_learning_rate = 1e-2
         self.es_patience = 7
         self.sc_patience = 2
@@ -45,8 +45,11 @@ class BaseConfiguration:
         self.landmark_detector_type = 'mobilefacenet'  # face_alignment, mobilefacenet
         # Embedder options
 
-        self.embedder_name = ['arcface', 'magface']  # arcface, vggface2, magface, shpereface
-        self.embedder_weights_path = [os.path.join('..', 'face_recognition', 'arcface_torch', 'weights', 'arcface_resnet100.pth'),
+        self.embedder_name = ['arcface_18', 'arcface_34', 'arcface_50', 'arcface_100', 'magface_100']  # arcface, vggface2, magface, shpereface
+        self.embedder_weights_path = [os.path.join('..', 'face_recognition', 'arcface_torch', 'weights', 'ms1mv3_arcface_resnet18.pth'),
+                                      os.path.join('..', 'face_recognition', 'arcface_torch', 'weights', 'ms1mv3_arcface_resnet34.pth'),
+                                      os.path.join('..', 'face_recognition', 'arcface_torch', 'weights', 'ms1mv3_arcface_resnet50.pth'),
+                                      os.path.join('..', 'face_recognition', 'arcface_torch', 'weights', 'ms1mv3_arcface_resnet100.pth'),
                                       os.path.join('..', 'face_recognition', 'magface_torch', 'weights', 'magface_resnet100.pth')]
         # self.landmark_folder = os.path.join('../landmark_detection/saved_landmarks',
         #                                     '_'.join([self.dataset_name, self.embedder_name, str(self.img_size[0])]),

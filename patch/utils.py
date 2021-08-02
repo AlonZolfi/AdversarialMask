@@ -2,6 +2,7 @@ import os
 import numpy as np
 import fnmatch
 import glob
+import json
 from PIL import Image
 import torch
 import random
@@ -9,11 +10,9 @@ from tqdm import tqdm
 from torch.utils.data import Dataset, SubsetRandomSampler, DataLoader
 import torch.nn.functional as F
 from torchvision import transforms
-from facenet_pytorch import InceptionResnetV1
 from collections import OrderedDict
 import face_recognition.arcface_torch.backbones.iresnet as AFBackbone
 import face_recognition.magface_torch.backbones as MFBackbone
-import face_recognition.sphereface_torch.backbones as SPFBackbone
 from landmark_detection.face_alignment.face_alignment import FaceAlignment, LandmarksType
 from landmark_detection.pytorch_face_landmark.models import mobilefacenet
 
@@ -169,14 +168,15 @@ class SplitDataset:
 
 
 def load_embedder(embedder_names, weight_paths, device):
+    layers_dict = {'18': [2, 2, 2, 2], '34': [3, 4, 6, 3], '50': [3, 4, 14, 3], '100': [3, 13, 30, 3]}
     embedders = {}
     for embedder_name, weight_path in zip(embedder_names, weight_paths):
         embedder_name = embedder_name.lower()
-        if embedder_name == 'arcface':
-            embedder = AFBackbone.IResNet(AFBackbone.IBasicBlock, [3, 13, 30, 3]).to(device).eval()
+        if 'arcface' in embedder_name:
+            embedder = AFBackbone.IResNet(AFBackbone.IBasicBlock, layers=layers_dict[embedder_name.split('_')[-1]]).to(device).eval()
             sd = torch.load(weight_path, map_location=device)
-        elif embedder_name == 'magface':
-            embedder = MFBackbone.IResNet(MFBackbone.IBasicBlock, [3, 13, 30, 3]).to(device).eval()
+        elif 'magface' in embedder_name:
+            embedder = MFBackbone.IResNet(MFBackbone.IBasicBlock, layers=layers_dict[embedder_name.split('_')[-1]]).to(device).eval()
             sd = torch.load(weight_path, map_location=device)['state_dict']
             sd = rewrite_weights_dict(sd)
         embedder.load_state_dict(sd)
@@ -407,7 +407,7 @@ def normalize_batch(adv_mask_class, img_batch):
 
 @torch.no_grad()
 def get_person_embedding(config, loader, adv_mask_class, device, include_others=False):
-    print('Calculating persons embeddings {}...'.format('with mask' if include_others == True else 'without mask'), flush=True)
+    print('Calculating persons embeddings {}...'.format('with mask' if include_others else 'without mask'), flush=True)
     embeddings_by_embedder = {}
     for embedder_name in config.embedder_name:
         person_embeddings = {i: torch.empty(0, device=device) for i in range(len(config.celeb_lab))}
@@ -429,7 +429,6 @@ def get_person_embedding(config, loader, adv_mask_class, device, include_others=
 
 
 def save_class_to_file(config, current_folder):
-    import json
     with open(os.path.join(current_folder, 'config.json'), 'w') as config_file:
         d = dict(vars(config))
         d.pop('scheduler_factory')

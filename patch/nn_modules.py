@@ -26,7 +26,6 @@ class LandmarkExtractor(nn.Module):
         self.img_size_height = img_size[0]
 
     def forward(self, img_batch):
-        img_batch = F.interpolate(img_batch, (112, 112))
         if isinstance(self.face_align, FaceAlignment):
             with torch.no_grad():
                 points = self.face_align.get_landmarks_from_batch(img_batch * 255)
@@ -34,7 +33,7 @@ class LandmarkExtractor(nn.Module):
             preds = torch.tensor(single_face_points, device=self.device)
         else:
             with torch.no_grad():
-                preds = self.face_align(img_batch)[0].T.view(img_batch.shape[0], -1, 2)
+                preds = self.face_align(img_batch)[0].view(img_batch.shape[0], -1, 2)
                 preds[..., 0] = preds[..., 0] * self.img_size_height
                 preds[..., 1] = preds[..., 1] * self.img_size_width
                 preds = preds.type(torch.int)

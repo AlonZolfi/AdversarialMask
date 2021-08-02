@@ -4,6 +4,8 @@ import fnmatch
 import glob
 from PIL import Image
 import torch
+import random
+from tqdm import tqdm
 from torch.utils.data import Dataset, SubsetRandomSampler, DataLoader
 import torch.nn.functional as F
 from torchvision import transforms
@@ -11,6 +13,7 @@ from facenet_pytorch import InceptionResnetV1
 from collections import OrderedDict
 import face_recognition.arcface_torch.backbones.iresnet as AFBackbone
 import face_recognition.magface_torch.backbones as MFBackbone
+import face_recognition.sphereface_torch.backbones as SPFBackbone
 from landmark_detection.face_alignment.face_alignment import FaceAlignment, LandmarksType
 from landmark_detection.pytorch_face_landmark.models import mobilefacenet
 
@@ -107,9 +110,9 @@ class CustomDataset(Dataset):
 
 
 class CustomDataset1(Dataset):
-    def __init__(self, img_dir, celeb_lab, img_size, indices, shuffle=True, transform=None):
+    def __init__(self, img_dir, celeb_lab_mapper, img_size, indices, shuffle=True, transform=None):
         self.img_dir = img_dir
-        self.celeb_labs = {lab: i for i, lab in enumerate(celeb_lab)}
+        self.celeb_lab_mapper = {lab: i for i, lab in celeb_lab_mapper.items()}
         self.img_size = img_size
         self.shuffle = shuffle
         self.img_names = self.get_image_names(indices)
@@ -127,10 +130,11 @@ class CustomDataset1(Dataset):
         if self.transform is not None:
             image = self.transform(image)
 
-        return image, self.img_names[idx], self.celeb_labs[celeb_lab]
+        return image, self.img_names[idx], self.celeb_lab_mapper[celeb_lab]
 
     def get_image_names(self, indices):
-        files_in_folder = get_dataset_files(self.img_dir, self.celeb_labs.keys())
+        files_in_folder = get_nested_dataset_files(self.img_dir, self.celeb_lab_mapper.keys())
+        files_in_folder = [item for sublist in files_in_folder for item in sublist]
         files_in_folder = [files_in_folder[i] for i in indices]
         png_images = fnmatch.filter(files_in_folder, '*.png')
         jpg_images = fnmatch.filter(files_in_folder, '*.jpg')
@@ -164,21 +168,20 @@ class SplitDataset:
         return train_loader, validation_loader, test_loader
 
 
-def load_embedder(embedder_name, weights_path, device):
-    embedder_name = embedder_name.lower()
-    if embedder_name == 'vggface2':
-        embedder = InceptionResnetV1(classify=False, pretrained='vggface2', device=device).eval()
-    elif embedder_name == 'arcface':
-        embedder = AFBackbone.IResNet(AFBackbone.IBasicBlock, [3, 13, 30, 3]).to(device).eval()
-        embedder.load_state_dict(torch.load(weights_path, map_location=device))
-    elif embedder_name == 'magface':
-        embedder = MFBackbone.IResNet(MFBackbone.IBasicBlock, [3, 13, 30, 3]).to(device).eval()
-        sd = torch.load(weights_path, map_location=device)['state_dict']
-        sd_new = rewrite_weights_dict(sd)
-        embedder.load_state_dict(sd_new)
-    else:
-        raise Exception('Embedder cannot be loaded')
-    return embedder
+def load_embedder(embedder_names, weight_paths, device):
+    embedders = {}
+    for embedder_name, weight_path in zip(embedder_names, weight_paths):
+        embedder_name = embedder_name.lower()
+        if embedder_name == 'arcface':
+            embedder = AFBackbone.IResNet(AFBackbone.IBasicBlock, [3, 13, 30, 3]).to(device).eval()
+            sd = torch.load(weight_path, map_location=device)
+        elif embedder_name == 'magface':
+            embedder = MFBackbone.IResNet(MFBackbone.IBasicBlock, [3, 13, 30, 3]).to(device).eval()
+            sd = torch.load(weight_path, map_location=device)['state_dict']
+            sd = rewrite_weights_dict(sd)
+        embedder.load_state_dict(sd)
+        embedders[embedder_name] = embedder
+    return embedders
 
 
 def rewrite_weights_dict(sd):
@@ -194,7 +197,7 @@ class EarlyStopping:
     """
     Early stops the training if validation loss doesn't improve after a given patience.
     """
-    def __init__(self, patience=7, verbose=False, delta=0, current_dir=''):
+    def __init__(self, patience=7, verbose=False, delta=0, current_dir='', init_patch=None):
         """
         Args:
             patience (int): How long to wait after last time validation loss improved.
@@ -211,7 +214,7 @@ class EarlyStopping:
         self.val_loss_min = np.Inf
         self.delta = delta
         self.current_dir = current_dir
-        self.best_patch = None
+        self.best_patch = init_patch
         self.alpha = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L'))
 
     def __call__(self, val_loss, patch, epoch):
@@ -225,7 +228,7 @@ class EarlyStopping:
             self.counter += 1
             print(f'EarlyStopping counter: {self.counter} out of {self.patience}', flush=True)
             if self.counter >= self.patience:
-                print("Training stopped - early stopping")
+                print("Training stopped - early stopping", flush=True)
                 return True
         else:
             self.best_score = score
@@ -238,7 +241,7 @@ class EarlyStopping:
         Saves model when validation loss decrease.
         """
         if self.verbose:
-            print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving patch ...')
+            print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving patch ...', flush=True)
         final_patch = torch.cat([patch.squeeze(0), self.alpha])
         transforms.ToPILImage()(final_patch).save(self.current_dir +
                                                   '/saved_patches' +
@@ -275,24 +278,31 @@ def get_landmark_detector(config, device):
         return model
 
 
-def get_dataset_files(img_dir, person_labs):
+def get_nested_dataset_files(img_dir, person_labs):
     files_in_folder = [glob.glob(os.path.join(img_dir, lab, '**/*.*g'), recursive=True) for lab in person_labs]
-    files_in_folder = [item for sublist in files_in_folder for item in sublist]
     return files_in_folder
 
 
 def get_split_indices(config):
-    dataset_size = len(get_dataset_files(config.img_dir, config.celeb_lab))
-    indices = list(range(dataset_size))
-    if config.shuffle:
-        np.random.shuffle(indices)
+    dataset_nested_files = get_nested_dataset_files(config.img_dir, config.celeb_lab)
 
     if config.num_of_train_images > 0:
-        num_of_train_images = config.num_of_train_images * len(config.celeb_lab)
-        train_indices = indices[:num_of_train_images]
+        nested_indices = [np.array(range(len(arr))) for i, arr in enumerate(dataset_nested_files)]
+        nested_indices_continuous = [nested_indices[0]]
+        for i, arr in enumerate(nested_indices[1:]):
+            nested_indices_continuous.append(arr + nested_indices_continuous[i][-1] + 1)
+        train_indices = np.array([np.random.choice(arr_idx, size=config.num_of_train_images, replace=False) for arr_idx in
+                                  nested_indices_continuous]).ravel()
         val_indices = []
-        test_indices = indices[num_of_train_images:]
+        test_indices = np.array(list(set(list(range(nested_indices_continuous[-1][-1]))) - set(train_indices)))
+        if config.shuffle:
+            np.random.shuffle(train_indices)
+            np.random.shuffle(test_indices)
     else:
+        dataset_size = len([item for sublist in dataset_nested_files for item in sublist])
+        indices = list(range(dataset_size))
+        if config.shuffle:
+            np.random.shuffle(indices)
         val_split = int(np.floor(config.val_split * dataset_size))
         test_split = int(np.floor(config.test_split * dataset_size))
         train_indices = indices[val_split + test_split:]
@@ -319,14 +329,14 @@ def get_split_indices_real_images(config):
 def get_loaders(config):
     train_indices, val_indices, test_indices = get_split_indices(config)
     train_dataset_no_aug = CustomDataset1(img_dir=config.img_dir,
-                                          celeb_lab=config.celeb_lab,
+                                          celeb_lab_mapper=config.celeb_lab_mapper,
                                           img_size=config.img_size,
                                           indices=train_indices,
                                           transform=transforms.Compose(
                                               [transforms.Resize(config.img_size),
                                                transforms.ToTensor()]))
     train_dataset = CustomDataset1(img_dir=config.img_dir,
-                                   celeb_lab=config.celeb_lab,
+                                   celeb_lab_mapper=config.celeb_lab_mapper,
                                    img_size=config.img_size,
                                    indices=train_indices,
                                    transform=transforms.Compose(
@@ -335,21 +345,21 @@ def get_loaders(config):
                                         transforms.Resize(config.img_size),
                                         transforms.ToTensor()]))
     val_dataset = CustomDataset1(img_dir=config.img_dir,
-                                 celeb_lab=config.celeb_lab,
+                                 celeb_lab_mapper=config.celeb_lab_mapper,
                                  img_size=config.img_size,
                                  indices=val_indices,
                                  transform=transforms.Compose(
                                      [transforms.Resize(config.img_size), transforms.ToTensor()]))
     test_dataset = CustomDataset1(img_dir=config.img_dir,
-                                  celeb_lab=config.celeb_lab,
+                                  celeb_lab_mapper=config.celeb_lab_mapper,
                                   img_size=config.img_size,
                                   indices=test_indices,
                                   transform=transforms.Compose(
                                       [transforms.Resize(config.img_size), transforms.ToTensor()]))
-    train_no_aug_loader = DataLoader(train_dataset_no_aug, batch_size=config.batch_size)
-    train_loader = DataLoader(train_dataset, batch_size=config.batch_size)
-    validation_loader = DataLoader(val_dataset, batch_size=config.batch_size)
-    test_loader = DataLoader(test_dataset)
+    train_no_aug_loader = DataLoader(train_dataset_no_aug, batch_size=config.train_batch_size)
+    train_loader = DataLoader(train_dataset, batch_size=config.train_batch_size)
+    validation_loader = DataLoader(val_dataset, batch_size=config.train_batch_size)
+    test_loader = DataLoader(test_dataset, batch_size=config.test_batch_size)
 
     return train_no_aug_loader, train_loader, validation_loader, test_loader
 
@@ -382,9 +392,9 @@ def get_loaders_real_images(config):
                                   indices=test_indices,
                                   transform=transforms.Compose(
                                       [transforms.Resize(config.img_size), transforms.ToTensor()]))
-    train_no_aug_loader = DataLoader(train_dataset_no_aug, batch_size=config.batch_size)
-    train_loader = DataLoader(train_dataset, batch_size=config.batch_size)
-    validation_loader = DataLoader(val_dataset, batch_size=config.batch_size)
+    train_no_aug_loader = DataLoader(train_dataset_no_aug, batch_size=config.train_batch_size)
+    train_loader = DataLoader(train_dataset, batch_size=config.train_batch_size)
+    validation_loader = DataLoader(val_dataset, batch_size=config.train_batch_size)
     test_loader = DataLoader(test_dataset)
 
     return train_no_aug_loader, train_loader, validation_loader, test_loader
@@ -397,22 +407,25 @@ def normalize_batch(adv_mask_class, img_batch):
 
 @torch.no_grad()
 def get_person_embedding(config, loader, adv_mask_class, device, include_others=False):
-    person_embeddings = {i: torch.empty(0, device=device) for i in range(len(config.celeb_lab))}
-    masks = [None]
-    if include_others:
-        masks.extend([config.blue_mask_path, config.black_mask_path, config.white_mask_path])
-    for mask_path in masks:
-        if mask_path is not None:
-            mask_t = load_mask(config, mask_path, device)
-        for img_batch, _, idx in loader:
+    print('Calculating persons embeddings {}...'.format('with mask' if include_others == True else 'without mask'), flush=True)
+    embeddings_by_embedder = {}
+    for embedder_name in config.embedder_name:
+        person_embeddings = {i: torch.empty(0, device=device) for i in range(len(config.celeb_lab))}
+        masks_path = [config.blue_mask_path, config.black_mask_path, config.white_mask_path]
+        for img_batch, _, person_indices in tqdm(loader):
             img_batch = img_batch.to(device)
-            if mask_path is not None:
-                img_batch = apply_mask(adv_mask_class.location_extractor, adv_mask_class.fxz_projector, img_batch, mask_t[:, :3], mask_t[:, 3])
-            embedding = adv_mask_class.embedder(img_batch)
-            person_embeddings[idx.item()] = torch.cat([person_embeddings[idx.item()], embedding], dim=0)
-    final_embeddings = [person_emb.mean(dim=0).unsqueeze(0) for person_emb in person_embeddings.values()]
-    final_embeddings = torch.stack(final_embeddings)
-    return final_embeddings
+            if include_others:
+                mask_path = masks_path[random.randint(0, 2)]
+                mask_t = load_mask(config, mask_path, device)
+                applied_batch = apply_mask(adv_mask_class.location_extractor, adv_mask_class.fxz_projector, img_batch, mask_t[:, :3], mask_t[:, 3])
+                img_batch = torch.cat([img_batch, applied_batch], dim=0)
+            embedding = adv_mask_class.embedders[embedder_name](img_batch)
+            for idx in person_indices:
+                person_embeddings[idx.item()] = torch.cat([person_embeddings[idx.item()], embedding], dim=0)
+        final_embeddings = [person_emb.mean(dim=0).unsqueeze(0) for person_emb in person_embeddings.values()]
+        final_embeddings = torch.stack(final_embeddings)
+        embeddings_by_embedder[embedder_name] = final_embeddings
+    return embeddings_by_embedder
 
 
 def save_class_to_file(config, current_folder):
@@ -421,34 +434,3 @@ def save_class_to_file(config, current_folder):
         d = dict(vars(config))
         d.pop('scheduler_factory')
         json.dump(d, config_file)
-
-
-# def load_landmarks(self):
-#     print('Starting landmark prediction')
-#     landmarks_dict = {}
-#     folder = self.config.landmark_folder
-#     Path(self.config.landmark_folder).mkdir(parents=True, exist_ok=True)
-#     lm_cur_files = os.listdir(folder)
-#     for loader in [self.train_loader, self.val_loader, self.test_loader]:
-#         for image, img_names in loader:
-#             for img_idx in range(len(img_names)):
-#                 file_name = img_names[img_idx].split('.')[0] + '.pt'
-#                 if (file_name not in lm_cur_files) or self.config.recreate_landmarks:
-#                     img = image[img_idx].to(device).unsqueeze(0)
-#                     preds = self.location_extractor(img)
-#                     torch.save(preds, os.path.join(folder, file_name))
-#                 else:
-#                     preds = torch.load(os.path.join(folder, file_name), map_location=device)
-#                 landmarks_dict[file_name.replace('.pt', '')] = preds
-#     del self.location_extractor
-#     torch.cuda.empty_cache()
-#     print('Finished landmark prediction')
-#     return landmarks_dict
-#
-#
-# def get_batch_landmarks(self, img_names):
-#     preds = torch.empty(0, device=device)
-#     for img_name in img_names:
-#         dict_key_name = img_name.split('.')[0]
-#         preds = torch.cat([preds, self.preds[dict_key_name]], dim=0)
-#     return preds

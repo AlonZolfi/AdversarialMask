@@ -1,5 +1,11 @@
 import sys
 import os
+
+if sys.base_prefix.__contains__('home/zolfi'):
+    sys.path.append('/home/zolfi/AdversarialMask')
+    sys.path.append('/home/zolfi/AdversarialMask/patch')
+    os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+    
 import random
 import warnings
 import time
@@ -34,11 +40,8 @@ warnings.simplefilter('ignore', UserWarning)
 
 global device
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-print('device is {}'.format(device))
+print('device is {}'.format(device), flush=True)
 
-if sys.base_prefix.__contains__('home/zolfi'):
-    sys.path.append('/home/zolfi/AdversarialMask/patch')
-    os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
 
 def set_random_seed(seed_value):
@@ -63,7 +66,7 @@ class AdversarialMask:
         else:
             self.train_no_aug_loader, self.train_loader, self.val_loader, self.test_loader = utils.get_loaders(self.config)
 
-        self.embedder = load_embedder(self.config.embedder_name, self.config.embedder_weights_path, device)
+        self.embedders = load_embedder(self.config.embedder_name, self.config.embedder_weights_path, device)
 
         face_landmark_detector = utils.get_landmark_detector(self.config, device)
         self.location_extractor = LandmarkExtractor(device, face_landmark_detector, self.config.img_size).to(device)
@@ -73,15 +76,16 @@ class AdversarialMask:
         self.total_variation = TotalVariation(device).to(device)
         self.dist_loss = losses.get_loss(self.config)
 
-        self.train_losses = []
+        self.train_losses_epoch = []
+        self.train_losses_iter = []
         self.dist_losses = []
         self.tv_losses = []
         self.val_losses = []
 
         self.create_folders()
         utils.save_class_to_file(self.config, self.config.current_dir)
+        self.test_target_embedding = utils.get_person_embedding(self.config,  self.train_no_aug_loader, self, device, include_others=False)
         self.target_embedding = utils.get_person_embedding(self.config,  self.train_no_aug_loader, self, device)
-        self.test_target_embedding = utils.get_person_embedding(self.config,  self.train_no_aug_loader, self, device, False)
         self.best_patch = None
 
     def create_folders(self):
@@ -96,7 +100,7 @@ class AdversarialMask:
         adv_patch_cpu = self.get_patch(self.config.initial_patch)
         optimizer = optim.Adam([adv_patch_cpu], lr=self.config.start_learning_rate, amsgrad=True)
         scheduler = self.config.scheduler_factory(optimizer)
-        early_stop = EarlyStopping(current_dir=self.config.current_dir, patience=self.config.es_patience)
+        early_stop = EarlyStopping(current_dir=self.config.current_dir, patience=self.config.es_patience, init_patch=adv_patch_cpu)
         epoch_length = len(self.train_loader)
         for epoch in range(self.config.epochs):
             train_loss = 0.0
@@ -121,35 +125,40 @@ class AdversarialMask:
                                                                   dist_loss / (i_batch + 1),
                                                                   tv_loss / (i_batch + 1),
                                                                   optimizer.param_groups[0]["lr"]))
-
+                self.train_losses_iter.append(train_loss / (i_batch + 1))
                 if i_batch + 1 == epoch_length:
                     # self.calc_validation(adv_patch_cpu)
                     self.save_losses(epoch_length, train_loss, dist_loss, tv_loss)
                     # prog_bar_desc += ', val-loss: {:.6}'
-                    progress_bar.set_postfix_str(prog_bar_desc.format(self.train_losses[-1],
+                    progress_bar.set_postfix_str(prog_bar_desc.format(self.train_losses_epoch[-1],
                                                                       self.dist_losses[-1],
                                                                       self.tv_losses[-1],
-                                                                      optimizer.param_groups[0]["lr"],))
+                                                                      optimizer.param_groups[0]["lr"], ))
                                                                       # self.val_losses[-1]))
                 for var in vars + sep_loss:
                     del var
                 del b_loss
                 torch.cuda.empty_cache()
-
-            if early_stop(self.train_losses[-1], adv_patch_cpu, epoch):
+            if early_stop(self.train_losses_epoch[-1], adv_patch_cpu, epoch):
                 self.best_patch = adv_patch_cpu
                 break
 
-            scheduler.step(self.train_losses[-1])
+            scheduler.step(self.train_losses_epoch[-1])
 
         self.best_patch = early_stop.best_patch
         self.save_final_objects()
-        self.plot_train_val_loss()
+        self.plot_train_val_loss(self.train_losses_epoch, 'Epoch')
+        self.plot_train_val_loss(self.train_losses_iter, 'Iterations')
         self.plot_separate_loss()
 
-    def loss_fn(self, patch_emb, tv_loss, cls_id):
-        target_embeddings = torch.index_select(self.target_embedding, index=cls_id, dim=0)
-        distance_loss = self.config.dist_weight * torch.mean(self.dist_loss(patch_emb, target_embeddings))
+    def loss_fn(self, patch_embs, tv_loss, cls_id):
+        distance_loss = torch.empty(0)
+        for target_embedding, (emb_name, patch_emb) in zip(self.target_embedding.values(), patch_embs.items()):
+            target_embeddings = torch.index_select(target_embedding, index=cls_id, dim=0).squeeze(-2)
+            distance = self.dist_loss(patch_emb, target_embeddings)
+            single_embedder_dist_loss = torch.mean(distance).unsqueeze(0)
+            distance_loss = torch.cat([distance_loss, single_embedder_dist_loss], dim=0)
+        distance_loss = self.config.dist_weight * distance_loss.mean()
         tv_loss = self.config.tv_weight * tv_loss
         total_loss = distance_loss + tv_loss
         return total_loss, [distance_loss, tv_loss]
@@ -188,17 +197,20 @@ class AdversarialMask:
     def forward_step(self, img_batch, adv_patch_cpu, img_names, cls_id, train=True):
         img_batch = img_batch.to(device)
         adv_patch = adv_patch_cpu.to(device)
+        cls_id = cls_id.to(device)
 
         preds = self.location_extractor(img_batch)
 
-        img_batch_applied = self.fxz_projector(img_batch, preds, adv_patch, do_aug=True)
+        img_batch_applied = self.fxz_projector(img_batch, preds, adv_patch, do_aug=self.config.mask_aug)
 
-        patch_emb = self.embedder(img_batch_applied)
+        patch_embs = {}
+        for embedder_name, emb_model in self.embedders.items():
+            patch_embs[embedder_name] = emb_model(img_batch_applied)
 
         tv_loss = self.total_variation(adv_patch, train)
-        loss = self.loss_fn(patch_emb, tv_loss, cls_id)
+        loss = self.loss_fn(patch_embs, tv_loss, cls_id)
 
-        return loss, [img_batch, adv_patch, img_batch_applied, patch_emb, tv_loss]
+        return loss, [img_batch, adv_patch, img_batch_applied, patch_embs, tv_loss]
 
     def calc_validation(self, adv_patch_cpu):
         val_loss = 0.0
@@ -217,24 +229,24 @@ class AdversarialMask:
         train_loss /= epoch_length
         dist_loss /= epoch_length
         tv_loss /= epoch_length
-        self.train_losses.append(train_loss)
+        self.train_losses_epoch.append(train_loss)
         self.dist_losses.append(dist_loss)
         self.tv_losses.append(tv_loss)
 
-    def plot_train_val_loss(self):
-        epochs = [x + 1 for x in range(len(self.train_losses))]
-        plt.plot(epochs, self.train_losses, 'b', label='Training loss')
-        if len(self.val_losses) > 0:
-            plt.plot(epochs, self.val_losses, 'r', label='Validation loss')
-        plt.title('Training and validation loss')
-        plt.xlabel('Epoch')
+    def plot_train_val_loss(self, loss, loss_type):
+        xticks = [x + 1 for x in range(len(loss))]
+        plt.plot(xticks, loss, 'b', label='Training loss')
+        # if len(self.val_losses) > 0:
+        #     plt.plot(xticks, self.val_losses, 'r', label='Validation loss')
+        plt.title('Training loss')
+        plt.xlabel(loss_type)
         plt.ylabel('Loss')
         plt.legend(loc='upper right')
-        plt.savefig(self.config.current_dir + '/final_results/train_val_loss_plt.png')
+        plt.savefig(self.config.current_dir + '/final_results/train_loss_' + loss_type.lower() + '_plt.png')
         plt.close()
 
     def plot_separate_loss(self):
-        epochs = [x + 1 for x in range(len(self.train_losses))]
+        epochs = [x + 1 for x in range(len(self.train_losses_epoch))]
         weights = np.array([self.config.dist_weight, self.config.tv_weight])
         number_of_subplots = weights[weights > 0].astype(bool).sum()
         fig, axes = plt.subplots(nrows=1, ncols=number_of_subplots, figsize=(6 * number_of_subplots, 2 * number_of_subplots), squeeze=False)
@@ -263,7 +275,7 @@ class AdversarialMask:
         torch.save(self.best_patch, self.config.current_dir + '/final_results/final_patch_raw.pt')
 
         with open(self.config.current_dir + '/losses/train_losses', 'wb') as fp:
-            pickle.dump(self.train_losses, fp)
+            pickle.dump(self.train_losses_epoch, fp)
         with open(self.config.current_dir + '/losses/val_losses', 'wb') as fp:
             pickle.dump(self.val_losses, fp)
         with open(self.config.current_dir + '/losses/dist_losses', 'wb') as fp:

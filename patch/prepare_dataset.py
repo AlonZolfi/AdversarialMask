@@ -61,7 +61,7 @@ def face_crop_raw_images(input_path, output_path):
                 cv2.imwrite(os.path.join(output_path, folder_name, image_path), cut)
 
 
-face_crop_raw_images('../datasets/CelebA', '../datasets/CelebA_aligned')
+# face_crop_raw_images('../datasets/CelebA', '../datasets/CelebA_aligned')
 
 
 def strip_lfw(input_path, output_path):

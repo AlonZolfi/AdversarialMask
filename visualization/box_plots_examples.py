@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+import pickle
 
 mask_names = ['Clean', 'Adv', 'Random', 'Blue', 'Black', 'White']
 
@@ -17,7 +18,7 @@ def load_all_mask_similarities(raw_data_path, mask_name):
     return sims
 
 
-def plot_sim_box(similarities):
+def plot_sim_box(similarities, target_type):
     sim_df = pd.DataFrame()
     for i in range(len(similarities)):
         sim_df[mask_names[i]] = similarities[i]
@@ -26,14 +27,31 @@ def plot_sim_box(similarities):
     sns.boxplot(data=sim_df_sorted).set_title('Similarities Difference')
     plt.xlabel('Mask Type')
     plt.ylabel('Similarity')
-    plt.savefig('combined_box_plot.png')
+    plt.savefig('combined_box_plot_' + target_type + '.png')
+    plt.close()
 
 
-def gather_sim_and_plot():
+def get_final_similarity_from_disk(file_name):
     sims = []
-    for mask_name in mask_names:
-        sims.append(load_all_mask_similarities('raw_data/1', mask_name))
-    plot_sim_box(sims)
+    with open(file_name, 'rb') as f:
+        while True:
+            try:
+                sims.extend(pickle.load(f))
+            except EOFError:
+                break
+    return sims
 
 
-gather_sim_and_plot()
+def gather_sim_and_plot(target_type, job_id):
+    output_folders = glob.glob('../patch/experiments/**/*{}'.format(job_id))
+    sims = []
+    for i, mask_name in enumerate(mask_names):
+        file_names = [glob.glob(os.path.join(folder, 'saved_similarities', target_type + '_' + mask_name + '.pickle')) for folder in output_folders]
+        sims.append([])
+        for file_name in file_names:
+            sims[i].extend(get_final_similarity_from_disk(file_name[0]))
+    plot_sim_box(sims, target_type)
+
+
+gather_sim_and_plot(target_type='with_mask', job_id='140570')
+gather_sim_and_plot(target_type='without_mask', job_id='140570')

@@ -36,22 +36,24 @@ def get_final_similarity_from_disk(file_name):
     with open(file_name, 'rb') as f:
         while True:
             try:
-                sims.extend(pickle.load(f))
+                data = pickle.load(f)
+                sims.extend(list(data.values()))
             except EOFError:
                 break
     return sims
+# get_final_similarity_from_disk('C:\\Users\\Administrator\\Desktop\\University\\Work\\AdversarialMask\\patch\\experiments\\August\\03-08-2021_18-06-45\\saved_similarities\\resnet100_arcface\\with_mask_Clean.pickle')
 
 
-def gather_sim_and_plot(target_type, job_id):
-    output_folders = glob.glob('../patch/experiments/**/*{}'.format(job_id))
+def gather_sim_and_plot(target_type, embedder_name, job_id):
+    output_folders = glob.glob('../patch/experiments/**/*{}'.format(job_id, job_id), recursive=True)[1:]
     sims = []
     for i, mask_name in enumerate(mask_names):
-        file_names = [glob.glob(os.path.join(folder, 'saved_similarities', target_type + '_' + mask_name + '.pickle')) for folder in output_folders]
+        file_names = [glob.glob(os.path.join(folder, 'saved_similarities', embedder_name, target_type + '_' + mask_name + '.pickle')) for folder in output_folders]
         sims.append([])
         for file_name in file_names:
             sims[i].extend(get_final_similarity_from_disk(file_name[0]))
     plot_sim_box(sims, target_type)
 
 
-gather_sim_and_plot(target_type='with_mask', job_id='140570')
-gather_sim_and_plot(target_type='without_mask', job_id='140570')
+gather_sim_and_plot(target_type='with_mask', embedder_name='arcface_100', job_id='148213')
+gather_sim_and_plot(target_type='without_mask', embedder_name='arcface_100', job_id='148213')

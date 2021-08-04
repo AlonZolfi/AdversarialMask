@@ -11,10 +11,11 @@ from torch.utils.data import Dataset, SubsetRandomSampler, DataLoader
 import torch.nn.functional as F
 from torchvision import transforms
 from collections import OrderedDict
-import face_recognition.arcface_torch.backbones.iresnet as AFBackbone
+import face_recognition.insightface_torch.backbones as InsightFaceResnetBackbone
 import face_recognition.magface_torch.backbones as MFBackbone
 from landmark_detection.face_alignment.face_alignment import FaceAlignment, LandmarksType
 from landmark_detection.pytorch_face_landmark.models import mobilefacenet
+from config import embedders_dict
 
 
 class CustomDataset(Dataset):
@@ -167,17 +168,17 @@ class SplitDataset:
         return train_loader, validation_loader, test_loader
 
 
-def load_embedder(embedder_names, weight_paths, device):
-    layers_dict = {'18': [2, 2, 2, 2], '34': [3, 4, 6, 3], '50': [3, 4, 14, 3], '100': [3, 13, 30, 3]}
+def load_embedder(embedder_names, device):
     embedders = {}
-    for embedder_name, weight_path in zip(embedder_names, weight_paths):
-        embedder_name = embedder_name.lower()
+    for embedder_name in embedder_names:
+        backbone, head = embedder_name.split('_')
+        weights_path = embedders_dict[backbone]['heads'][head]['weights_path']
         if 'arcface' in embedder_name:
-            embedder = AFBackbone.IResNet(AFBackbone.IBasicBlock, layers=layers_dict[embedder_name.split('_')[-1]]).to(device).eval()
-            sd = torch.load(weight_path, map_location=device)
+            embedder = InsightFaceResnetBackbone.IResNet(InsightFaceResnetBackbone.IBasicBlock, layers=embedders_dict[backbone]['layers']).to(device).eval()
+            sd = torch.load(weights_path, map_location=device)
         elif 'magface' in embedder_name:
-            embedder = MFBackbone.IResNet(MFBackbone.IBasicBlock, layers=layers_dict[embedder_name.split('_')[-1]]).to(device).eval()
-            sd = torch.load(weight_path, map_location=device)['state_dict']
+            embedder = MFBackbone.IResNet(MFBackbone.IBasicBlock, layers=embedders_dict[backbone]['layers']).to(device).eval()
+            sd = torch.load(weights_path, map_location=device)['state_dict']
             sd = rewrite_weights_dict(sd)
         embedder.load_state_dict(sd)
         embedders[embedder_name] = embedder
@@ -406,10 +407,10 @@ def normalize_batch(adv_mask_class, img_batch):
 
 
 @torch.no_grad()
-def get_person_embedding(config, loader, adv_mask_class, device, include_others=False):
+def get_person_embedding(config, loader, location_extractor, fxz_projector, embedders, embedder_names, device, include_others=False):
     print('Calculating persons embeddings {}...'.format('with mask' if include_others else 'without mask'), flush=True)
     embeddings_by_embedder = {}
-    for embedder_name in config.embedder_name:
+    for embedder_name in embedder_names:
         person_embeddings = {i: torch.empty(0, device=device) for i in range(len(config.celeb_lab))}
         masks_path = [config.blue_mask_path, config.black_mask_path, config.white_mask_path]
         for img_batch, _, person_indices in tqdm(loader):
@@ -417,9 +418,9 @@ def get_person_embedding(config, loader, adv_mask_class, device, include_others=
             if include_others:
                 mask_path = masks_path[random.randint(0, 2)]
                 mask_t = load_mask(config, mask_path, device)
-                applied_batch = apply_mask(adv_mask_class.location_extractor, adv_mask_class.fxz_projector, img_batch, mask_t[:, :3], mask_t[:, 3])
+                applied_batch = apply_mask(location_extractor, fxz_projector, img_batch, mask_t[:, :3], mask_t[:, 3])
                 img_batch = torch.cat([img_batch, applied_batch], dim=0)
-            embedding = adv_mask_class.embedders[embedder_name](img_batch)
+            embedding = embedders[embedder_name](img_batch)
             for idx in person_indices:
                 person_embeddings[idx.item()] = torch.cat([person_embeddings[idx.item()], embedding], dim=0)
         final_embeddings = [person_emb.mean(dim=0).unsqueeze(0) for person_emb in person_embeddings.values()]

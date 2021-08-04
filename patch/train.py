@@ -66,7 +66,7 @@ class AdversarialMask:
         else:
             self.train_no_aug_loader, self.train_loader, self.val_loader, self.test_loader = utils.get_loaders(self.config)
 
-        self.embedders = load_embedder(self.config.embedder_name, self.config.embedder_weights_path, device)
+        self.embedders = load_embedder(self.config.train_embedder_names, device)
 
         face_landmark_detector = utils.get_landmark_detector(self.config, device)
         self.location_extractor = LandmarkExtractor(device, face_landmark_detector, self.config.img_size).to(device)
@@ -84,8 +84,9 @@ class AdversarialMask:
 
         self.create_folders()
         utils.save_class_to_file(self.config, self.config.current_dir)
-        self.test_target_embedding = utils.get_person_embedding(self.config,  self.train_no_aug_loader, self, device, include_others=True)
-        self.target_embedding = utils.get_person_embedding(self.config,  self.train_no_aug_loader, self, device)
+        self.target_embedding = utils.get_person_embedding(self.config, self.train_no_aug_loader, self.location_extractor,
+                                                           self.fxz_projector, self.embedders,
+                                                           self.config.train_embedder_names, device)
         self.best_patch = None
 
     def create_folders(self):
@@ -288,10 +289,14 @@ def main():
     mode = 'private'
     # mode = 'cluster'
     config = patch_config_types[mode]()
+    print('Starting train...', flush=True)
     adv_mask = AdversarialMask(config)
     adv_mask.train()
+    print('Finished train...', flush=True)
+    print('Starting test...', flush=True)
     evaluator = Evaluator(adv_mask)
     evaluator.test()
+    print('Finished test...', flush=True)
 
 
 if __name__ == '__main__':

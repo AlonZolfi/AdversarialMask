@@ -8,8 +8,9 @@ from PIL import Image
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from sklearn.metrics import precision_recall_curve, average_precision_score, precision_recall_fscore_support
+from sklearn.metrics import precision_recall_curve as pr, average_precision_score
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.preprocessing import label_binarize
 import matplotlib
 from pathlib import Path
 import seaborn as sns
@@ -27,6 +28,13 @@ class Evaluator:
         self.config = adv_mask_class.config
         self.adv_mask_class = adv_mask_class
         self.transform = transforms.Compose([transforms.Resize(self.config.patch_size), transforms.ToTensor()])
+        self.embedders = utils.load_embedder(self.config.test_embedder_names, device=device)
+        self.target_embedding_w_mask = utils.get_person_embedding(self.config, self.adv_mask_class.train_no_aug_loader,
+                                                                  self.adv_mask_class.location_extractor, self.adv_mask_class.fxz_projector, self.embedders,
+                                                                  self.config.test_embedder_names, device, include_others=True)
+        self.target_embedding_wo_mask = utils.get_person_embedding(self.config, self.adv_mask_class.train_no_aug_loader,
+                                                                   self.adv_mask_class.location_extractor, self.adv_mask_class.fxz_projector, self.embedders,
+                                                                   self.config.test_embedder_names, device, include_others=False)
         self.random_mask_t = utils.load_mask(self.config, self.config.random_mask_path, device)
         self.blue_mask_t = utils.load_mask(self.config, self.config.blue_mask_path, device)
         self.black_mask_t = utils.load_mask(self.config, self.config.black_mask_path, device)
@@ -35,6 +43,7 @@ class Evaluator:
 
     @torch.no_grad()
     def calc_overall_similarity(self):
+        df = pd.DataFrame(columns=['y_true', 'y_pred'])
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', UserWarning)
 
@@ -49,8 +58,10 @@ class Evaluator:
                 # Get embedding
                 all_embeddings = self.get_all_embeddings(img_batch, img_batch_applied)
 
-                self.calc_all_similarity(all_embeddings, cls_id, 'with_mask')
-                self.calc_all_similarity(all_embeddings, cls_id, 'without_mask')
+                self.calc_all_similarity(all_embeddings, img_names, cls_id, 'with_mask')
+                self.calc_all_similarity(all_embeddings, img_names, cls_id, 'without_mask')
+
+                df = df.append(self.calc_preds(cls_id, all_embeddings))
 
     def test(self):
         if self.config.is_real_person:
@@ -60,11 +71,12 @@ class Evaluator:
         similarities_target_without_mask = self.get_final_similarity_from_disk('without_mask')
         self.plot_sim_box(similarities_target_with_mask, target_type='with')
         self.plot_sim_box(similarities_target_without_mask, target_type='without')
-        # precisions, recalls, thresholds, aps = self.get_pr(similarities)
-        # self.plot_pr_curve(precisions, recalls, thresholds, aps)
+        # if len(self.config.celeb_lab) > 1:
+        #     precisions, recalls, thresholds, aps = self.get_pr(similarities)
+        #     self.plot_pr_curve(precisions, recalls, thresholds, aps)
 
     def plot_sim_box(self, similarities, target_type):
-        for emb_name in self.config.embedder_name:
+        for emb_name in self.config.test_embedder_names:
             sim_df = pd.DataFrame()
             for i in range(len(similarities[emb_name])):
                 # sim_df[self.mask_names[i]] = (similarities[i].squeeze() + 1) / 2
@@ -80,17 +92,19 @@ class Evaluator:
             plt.savefig(self.config.current_dir + '/final_results/sim-boxes_' + target_type + '_' + emb_name + '.png')
             plt.close()
 
-    def write_similarities_to_disk(self, sims, cls_ids, sim_type, emb_name):
+    def write_similarities_to_disk(self, sims, img_names, cls_ids, sim_type, emb_name):
         Path(os.path.join(self.config.current_dir, 'saved_similarities', emb_name)).mkdir(parents=True, exist_ok=True)
         for i, lab in self.config.celeb_lab_mapper.items():
             Path(os.path.join(self.config.current_dir, 'saved_similarities', emb_name, lab)).mkdir(parents=True, exist_ok=True)
             for similarity, mask_name in zip(sims, self.mask_names):
                 sim = similarity[cls_ids.cpu().numpy() == i].tolist()
+                sim = {img_name: s for img_name, s in zip(img_names, sim)}
                 with open(os.path.join(self.config.current_dir, 'saved_similarities', emb_name, lab, mask_name + '.pickle'), 'ab') as f:
                     pickle.dump(sim, f)
         for similarity, mask_name in zip(sims, self.mask_names):
+            sim = {img_name: s for img_name, s in zip(img_names, similarity.tolist())}
             with open(os.path.join(self.config.current_dir, 'saved_similarities', emb_name, sim_type + '_' + mask_name + '.pickle'), 'ab') as f:
-                pickle.dump(similarity.tolist(), f)
+                pickle.dump(sim, f)
 
     def apply_all_masks(self, img_batch, adv_patch):
         img_batch_applied_adv = utils.apply_mask(self.adv_mask_class.location_extractor,
@@ -115,7 +129,7 @@ class Evaluator:
 
     def get_all_embeddings(self, img_batch, img_batch_applied_masks):
         batch_embs = {}
-        for emb_name, emb_model in self.adv_mask_class.embedders.items():
+        for emb_name, emb_model in self.embedders.items():
             batch_embs[emb_name] = [emb_model(img_batch.to(device)).cpu().numpy()]
             for img_batch_applied_mask in img_batch_applied_masks:
                 batch_embs[emb_name].append(emb_model(img_batch_applied_mask.to(device)).cpu().numpy())
@@ -133,61 +147,73 @@ class Evaluator:
         all_test_image_white = np.concatenate([all_test_image_white, batch_emb_white])
         return all_test_image_clean, all_test_image_adv, all_test_image_random, all_test_image_blue, all_test_image_black, all_test_image_white
 
-    def calc_all_similarity(self, all_embeddings, cls_id, target_type):
-        for emb_name in self.config.embedder_name:
-            target = self.adv_mask_class.test_target_embedding[emb_name] if target_type == 'with_mask' else self.adv_mask_class.target_embedding[emb_name]
+    def calc_all_similarity(self, all_embeddings, img_names, cls_id, target_type):
+        for emb_name in self.config.test_embedder_names:
+            target = self.target_embedding_w_mask[emb_name] if target_type == 'with_mask' else self.target_embedding_wo_mask[emb_name]
             target_embedding = torch.index_select(target, index=cls_id, dim=0).cpu().numpy().squeeze(-2)
             sims = []
             for emb in all_embeddings[emb_name]:
                 sims.append(np.diag(cosine_similarity(emb, target_embedding)))
-            self.write_similarities_to_disk(sims, cls_id, sim_type=target_type, emb_name=emb_name)
+            self.write_similarities_to_disk(sims, img_names, cls_id, sim_type=target_type, emb_name=emb_name)
 
     def get_final_similarity_from_disk(self, sim_type):
         sims = {}
-        for emb_name in self.config.embedder_name:
+        for emb_name in self.config.test_embedder_names:
             sims[emb_name] = []
             for i, mask_name in enumerate(self.mask_names):
                 with open(os.path.join(self.config.current_dir, 'saved_similarities', emb_name, sim_type + '_' + mask_name + '.pickle'), 'rb') as f:
                     sims[emb_name].append([])
                     while True:
                         try:
-                            sims[emb_name][i].extend(pickle.load(f))
+                            sims[emb_name][i].extend(list(pickle.load(f).values()))
                         except EOFError:
                             break
         return sims
 
+    def get_pr(self, similarities):
+            y_true = np.ones(similarities[0].shape[0])
 
+            precisions, recalls, thresholds, aps = [], [], [], []
+            for similarity in similarities:
+                precision, recall, _ = pr(pd.DataFrame(y_true), pd.DataFrame(similarity.cpu().numpy()))
+                ap = average_precision_score(y_true, similarity.cpu().numpy())
+                precisions.append(precision)
+                recalls.append(recall)
+                aps.append(ap)
 
-'''def get_pr(self, similarities):
-        y_true = np.ones(similarities[0].shape[0])
+            return precisions, recalls, thresholds, aps
 
-        precisions, recalls, thresholds, aps = [], [], [], []
-        for similarity in similarities:
-            precision, recall, _ = pr(pd.DataFrame(y_true), pd.DataFrame(similarity.cpu().numpy()))
-            ap = average_precision_score(y_true, similarity.cpu().numpy())
-            precisions.append(precision)
-            recalls.append(recall)
-            aps.append(ap)
+    def plot_pr_curve(self, precisions, recalls, thresholds, aps):
+        plt.plot([0, 1.05], [0, 1.05], '--', color='gray')
+        title = 'Precision-Recall Curve'
+        plt.title(title)
+        for i in range(len(precisions)):
+            plt.plot(recalls[i], precisions[i], label='{}: AP: {}%'.format(self.mask_names[i], round(aps[i] * 100, 2)))
 
-        return precisions, recalls, thresholds, aps'''
+        plt.gca().set_ylabel('Precision')
+        plt.gca().set_xlabel('Recall')
+        plt.gca().set_xlim([0, 1.05])
+        plt.gca().set_ylim([0, 1.05])
 
-'''def plot_pr_curve(self, precisions, recalls, thresholds, aps):
-    plt.plot([0, 1.05], [0, 1.05], '--', color='gray')
-    title = 'Precision-Recall Curve'
-    plt.title(title)
-    for i in range(len(precisions)):
-        plt.plot(recalls[i], precisions[i], label='{}: AP: {}%'.format(self.mask_names[i], round(aps[i] * 100, 2)))
+        handles, labels = plt.gca().get_legend_handles_labels()
+        # sort both labels and handles by labels
+        labels, handles = zip(*sorted(zip(labels, handles),
+                                      key=lambda t: float(t[0].split('AP: ')[1].replace('%', '')),
+                                      reverse=True))
+        plt.gca().legend(handles, labels, loc=4)
+        plt.imshow()
+        plt.savefig(self.adv_mask_class.current_dir + '/final_results/pr-curve.png')
 
-    plt.gca().set_ylabel('Precision')
-    plt.gca().set_xlabel('Recall')
-    plt.gca().set_xlim([0, 1.05])
-    plt.gca().set_ylim([0, 1.05])
-
-    handles, labels = plt.gca().get_legend_handles_labels()
-    # sort both labels and handles by labels
-    labels, handles = zip(*sorted(zip(labels, handles),
-                                  key=lambda t: float(t[0].split('AP: ')[1].replace('%', '')),
-                                  reverse=True))
-    plt.gca().legend(handles, labels, loc=4)
-    plt.imshow()
-    plt.savefig(self.adv_mask_class.current_dir + '/final_results/pr-curve.png')'''
+    def calc_preds(self, cls_id, all_embeddings, target_type):
+        df = pd.DataFrame(columns=['emb_name', 'y_true', 'y_pred'])
+        y_true = label_binarize(cls_id.cpu().numpy(), classes=list(range(0, len(self.config.celeb_lab))))
+        for emb_name in self.config.test_embedder_names:
+            target = self.target_embedding_w_mask[emb_name] if target_type == 'with_mask' else self.target_embedding_wo_mask[emb_name]
+            target_embedding = torch.index_select(target, index=cls_id, dim=0).cpu().numpy().squeeze(-2)
+            sims = []
+            for emb in all_embeddings[emb_name]:
+                cos_sim = cosine_similarity(emb, target_embedding)
+                max_idx = np.argmax(axis=1)
+                sims.append(np.max())
+            pd.Series([emb_name], index=df.columns)
+            df = df.append()

@@ -2,28 +2,37 @@ from config import patch_config_types
 from train import AdversarialMask
 from test import Evaluator
 import os
+from shutil import move
 import pickle
+from pathlib import Path
+import datetime
+import time
 
 
-def train_multiple():
+def train_multiple_persons():
     mode = 'private'
     config = patch_config_types[mode]()
     output_folders = []
-    for lab in os.listdir(config.img_dir):
+    for i, lab in enumerate(os.listdir(config.img_dir)[:1]):
         config.update_current_dir()
         config.set_attribute('celeb_lab', [lab])
         config.set_attribute('celeb_lab_mapper', {0: lab})
+        print(f'Starting train person {i+1}...', flush=True)
         adv_mask = AdversarialMask(config)
         adv_mask.train()
+        print('Finished train...', flush=True)
+        print(f'Starting test person {i+1}...', flush=True)
         evaluator = Evaluator(adv_mask)
         evaluator.test()
+        print('Finished test...', flush=True)
         output_folders.append(config.current_dir)
-    job_id = ''
-    if 'SLURM_JOBID' in os.environ.keys():
-        job_id = os.environ['SLURM_JOBID']
-    with open(job_id + 'output_folders.pickle', 'wb') as f:
-        pickle.dump(output_folders, f)
-    print(output_folders)
+
+    my_date = datetime.datetime.now()
+    month_name = my_date.strftime("%B")
+    final_output_path = os.path.join("experiments", month_name, time.strftime("%d-%m-%Y") + '_' + time.strftime("%H-%M-%S") + '_' + os.environ['SLURM_JOBID'])
+    Path(final_output_path).mkdir(parents=True, exist_ok=True)
+    for output_folder in output_folders:
+        move(output_folder, final_output_path)
 
 
-train_multiple()
+train_multiple_persons()

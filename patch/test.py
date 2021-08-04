@@ -79,7 +79,7 @@ class Evaluator:
         if len(self.config.celeb_lab) > 1:
             converters = {"y_true": lambda x: list(map(int, x.strip("[]").split(", "))),
                           "y_pred": lambda x: list(map(float, x.strip("[]").split(", ")))}
-            preds_with_mask_df = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', 'preds_with_mask.csv'), convertors=convertors)
+            preds_with_mask_df = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', 'preds_with_mask.csv'), convertors=converters)
             preds_without_mask_df = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', 'preds_without_mask.csv'), converters=converters)
             precisions_with_mask, recalls_with_mask, aps_with_mask = self.get_pr(preds_with_mask_df)
             self.plot_pr_curve(precisions_with_mask, recalls_with_mask, aps_with_mask, target_type='with_mask')

@@ -420,9 +420,12 @@ def get_person_embedding(config, loader, location_extractor, fxz_projector, embe
                 mask_t = load_mask(config, mask_path, device)
                 applied_batch = apply_mask(location_extractor, fxz_projector, img_batch, mask_t[:, :3], mask_t[:, 3])
                 img_batch = torch.cat([img_batch, applied_batch], dim=0)
+                person_indices = person_indices.repeat(2)
             embedding = embedders[embedder_name](img_batch)
-            for idx in person_indices:
-                person_embeddings[idx.item()] = torch.cat([person_embeddings[idx.item()], embedding], dim=0)
+            for idx in person_indices.unique():
+                relevant_indices = torch.nonzero(person_indices == idx, as_tuple=True)
+                emb = embedding[relevant_indices]
+                person_embeddings[idx.item()] = torch.cat([person_embeddings[idx.item()], emb], dim=0)
         final_embeddings = [person_emb.mean(dim=0).unsqueeze(0) for person_emb in person_embeddings.values()]
         final_embeddings = torch.stack(final_embeddings)
         embeddings_by_embedder[embedder_name] = final_embeddings

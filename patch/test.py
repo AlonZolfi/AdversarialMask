@@ -43,7 +43,8 @@ class Evaluator:
 
     @torch.no_grad()
     def calc_overall_similarity(self):
-        df = pd.DataFrame(columns=['y_true', 'y_pred'])
+        df_with_mask = pd.DataFrame(columns=['y_true', 'y_pred'])
+        df_without_mask = pd.DataFrame(columns=['y_true', 'y_pred'])
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', UserWarning)
 
@@ -61,7 +62,11 @@ class Evaluator:
                 self.calc_all_similarity(all_embeddings, img_names, cls_id, 'with_mask')
                 self.calc_all_similarity(all_embeddings, img_names, cls_id, 'without_mask')
 
-                df = df.append(self.calc_preds(cls_id, all_embeddings))
+                df_with_mask = df_with_mask.append(self.calc_preds(cls_id, all_embeddings, target_type='with_mask'))
+                df_without_mask = df_without_mask.append(self.calc_preds(cls_id, all_embeddings, target_type='without_mask'))
+
+        df_with_mask.to_csv(os.path.join(self.config.current_dir, 'saved_preds', 'preds_with_mask.csv'), index=False)
+        df_without_mask.to_csv(os.path.join(self.config.current_dir, 'saved_preds', 'preds_without_mask.csv'), index=False)
 
     def test(self):
         if self.config.is_real_person:
@@ -71,9 +76,13 @@ class Evaluator:
         similarities_target_without_mask = self.get_final_similarity_from_disk('without_mask')
         self.plot_sim_box(similarities_target_with_mask, target_type='with')
         self.plot_sim_box(similarities_target_without_mask, target_type='without')
-        # if len(self.config.celeb_lab) > 1:
-        #     precisions, recalls, thresholds, aps = self.get_pr(similarities)
-        #     self.plot_pr_curve(precisions, recalls, thresholds, aps)
+        if len(self.config.celeb_lab) > 1:
+            converters = {"y_true": lambda x: list(map(int, x.strip("[]").split(", "))),
+                          "y_pred": lambda x: list(map(float, x.strip("[]").split(", ")))}
+            # df_with_mask = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', 'preds_with_mask.csv'), convertors=convertors)
+            df_without_mask = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', 'preds_without_mask.csv'), converters=converters)
+            precisions, recalls, thresholds, aps = self.get_pr(df_without_mask)
+            self.plot_pr_curve(precisions, recalls, thresholds, aps)
 
     def plot_sim_box(self, similarities, target_type):
         for emb_name in self.config.test_embedder_names:
@@ -89,7 +98,7 @@ class Evaluator:
             plt.ylabel('Similarity')
             # plt.gca().set_ylim([, 1.05])
             # plt.legend()
-            plt.savefig(self.config.current_dir + '/final_results/sim-boxes_' + target_type + '_' + emb_name + '.png')
+            plt.savefig(self.config.current_dir + '/final_results/sim-boxes/' + target_type + '_' + emb_name + '.png')
             plt.close()
 
     def write_similarities_to_disk(self, sims, img_names, cls_ids, sim_type, emb_name):
@@ -170,25 +179,32 @@ class Evaluator:
                             break
         return sims
 
-    def get_pr(self, similarities):
-            y_true = np.ones(similarities[0].shape[0])
+    def get_pr(self, df, emb_name='resnet100_arcface'):
+        precisions, recalls, thresholds, aps = [], [], [], []
+        for mask_name in self.mask_names:
+            precision, recall, ap = dict(), dict(), dict()
+            tmp_df = df[(df.emb_name == emb_name) & (df.mask_name == mask_name)]
+            y_true = np.array([np.array(lst) for lst in tmp_df.y_true.values])
+            y_pred = np.array([np.array(lst) for lst in tmp_df.y_pred.values])
+            for i in range(len(self.config.celeb_lab)):
+                precision[i], recall[i], _ = pr(y_true[:, i], y_pred[:, i])
+                ap[i] = average_precision_score(y_true[:, i], y_pred[:, i])
 
-            precisions, recalls, thresholds, aps = [], [], [], []
-            for similarity in similarities:
-                precision, recall, _ = pr(pd.DataFrame(y_true), pd.DataFrame(similarity.cpu().numpy()))
-                ap = average_precision_score(y_true, similarity.cpu().numpy())
-                precisions.append(precision)
-                recalls.append(recall)
-                aps.append(ap)
+            precision["micro"], recall["micro"], _ = pr(y_true.ravel(), y_pred.ravel())
+            ap["micro"] = average_precision_score(y_true, y_pred, average="micro")
 
-            return precisions, recalls, thresholds, aps
+            precisions.append(precision)
+            recalls.append(recall)
+            aps.append(ap)
+
+        return precisions, recalls, thresholds, aps
 
     def plot_pr_curve(self, precisions, recalls, thresholds, aps):
         plt.plot([0, 1.05], [0, 1.05], '--', color='gray')
         title = 'Precision-Recall Curve'
         plt.title(title)
         for i in range(len(precisions)):
-            plt.plot(recalls[i], precisions[i], label='{}: AP: {}%'.format(self.mask_names[i], round(aps[i] * 100, 2)))
+            plt.plot(recalls[i]['micro'], precisions[i]['micro'], label='{}: AP: {}%'.format(self.mask_names[i], round(aps[i]['micro'] * 100, 2)))
 
         plt.gca().set_ylabel('Precision')
         plt.gca().set_xlabel('Recall')
@@ -201,19 +217,28 @@ class Evaluator:
                                       key=lambda t: float(t[0].split('AP: ')[1].replace('%', '')),
                                       reverse=True))
         plt.gca().legend(handles, labels, loc=4)
-        plt.imshow()
-        plt.savefig(self.adv_mask_class.current_dir + '/final_results/pr-curve.png')
+        plt.savefig(self.config.current_dir + '/final_results/pr-curves/pr-curve.png')
 
     def calc_preds(self, cls_id, all_embeddings, target_type):
-        df = pd.DataFrame(columns=['emb_name', 'y_true', 'y_pred'])
-        y_true = label_binarize(cls_id.cpu().numpy(), classes=list(range(0, len(self.config.celeb_lab))))
+        df = pd.DataFrame(columns=['emb_name', 'mask_name', 'y_true', 'y_pred'])
+        class_labels = list(range(0, len(self.config.celeb_lab)))
+        y_true = label_binarize(cls_id.cpu().numpy(), classes=class_labels)
+        y_true = [lab.tolist() for lab in y_true]
         for emb_name in self.config.test_embedder_names:
-            target = self.target_embedding_w_mask[emb_name] if target_type == 'with_mask' else self.target_embedding_wo_mask[emb_name]
-            target_embedding = torch.index_select(target, index=cls_id, dim=0).cpu().numpy().squeeze(-2)
-            sims = []
-            for emb in all_embeddings[emb_name]:
-                cos_sim = cosine_similarity(emb, target_embedding)
-                max_idx = np.argmax(axis=1)
-                sims.append(np.max())
-            pd.Series([emb_name], index=df.columns)
-            df = df.append()
+            target_embedding = self.target_embedding_w_mask[emb_name] if target_type == 'with_mask' else self.target_embedding_wo_mask[emb_name]
+            target_embedding = target_embedding.cpu().numpy().squeeze(-2)
+            for i, mask_name in enumerate(self.mask_names):
+                emb = all_embeddings[emb_name][i]
+                cos_sim = (cosine_similarity(emb, target_embedding) + 1) / 2
+                max_idx = np.argmax(cos_sim, axis=1)
+                max_mask = label_binarize(max_idx, classes=class_labels)
+                y_pred = np.round(cos_sim * max_mask, decimals=3)
+                y_pred = [lab.tolist() for lab in y_pred]
+                new_rows = pd.DataFrame({
+                    'emb_name': [emb_name] * len(y_true),
+                    'mask_name': [mask_name] * len(y_true),
+                    'y_true': y_true,
+                    'y_pred': y_pred
+                })
+                df = df.append(new_rows, ignore_index=True)
+        return df

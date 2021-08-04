@@ -81,8 +81,8 @@ class Evaluator:
                           "y_pred": lambda x: list(map(float, x.strip("[]").split(", ")))}
             # df_with_mask = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', 'preds_with_mask.csv'), convertors=convertors)
             df_without_mask = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', 'preds_without_mask.csv'), converters=converters)
-            precisions, recalls, thresholds, aps = self.get_pr(df_without_mask)
-            self.plot_pr_curve(precisions, recalls, thresholds, aps)
+            precisions, recalls, aps = self.get_pr(df_without_mask)
+            self.plot_pr_curve(precisions, recalls, aps)
 
     def plot_sim_box(self, similarities, target_type):
         for emb_name in self.config.test_embedder_names:
@@ -98,7 +98,7 @@ class Evaluator:
             plt.ylabel('Similarity')
             # plt.gca().set_ylim([, 1.05])
             # plt.legend()
-            plt.savefig(self.config.current_dir + '/final_results/sim-boxes/' + target_type + '_' + emb_name + '.png')
+            plt.savefig(os.path.join(self.config.current_dir, 'final_results', 'sim-boxes', + target_type + '_' + emb_name + '.png'))
             plt.close()
 
     def write_similarities_to_disk(self, sims, img_names, cls_ids, sim_type, emb_name):
@@ -179,45 +179,51 @@ class Evaluator:
                             break
         return sims
 
-    def get_pr(self, df, emb_name='resnet100_arcface'):
-        precisions, recalls, thresholds, aps = [], [], [], []
-        for mask_name in self.mask_names:
-            precision, recall, ap = dict(), dict(), dict()
-            tmp_df = df[(df.emb_name == emb_name) & (df.mask_name == mask_name)]
-            y_true = np.array([np.array(lst) for lst in tmp_df.y_true.values])
-            y_pred = np.array([np.array(lst) for lst in tmp_df.y_pred.values])
-            for i in range(len(self.config.celeb_lab)):
-                precision[i], recall[i], _ = pr(y_true[:, i], y_pred[:, i])
-                ap[i] = average_precision_score(y_true[:, i], y_pred[:, i])
+    def get_pr(self, df):
+        precisions, recalls, aps = {}, {}, {}
+        for emb_name in self.config.test_embedder_names:
+            precisions[emb_name], recalls[emb_name], aps[emb_name] = [], [], []
+            for mask_name in self.mask_names:
+                precision, recall, ap = dict(), dict(), dict()
+                tmp_df = df[(df.emb_name == emb_name) & (df.mask_name == mask_name)]
+                y_true = np.array([np.array(lst) for lst in tmp_df.y_true.values])
+                y_pred = np.array([np.array(lst) for lst in tmp_df.y_pred.values])
+                for i in range(len(self.config.celeb_lab)):
+                    precision[i], recall[i], _ = pr(y_true[:, i], y_pred[:, i])
+                    ap[i] = average_precision_score(y_true[:, i], y_pred[:, i])
 
-            precision["micro"], recall["micro"], _ = pr(y_true.ravel(), y_pred.ravel())
-            ap["micro"] = average_precision_score(y_true, y_pred, average="micro")
+                precision["micro"], recall["micro"], _ = pr(y_true.ravel(), y_pred.ravel())
+                ap["micro"] = average_precision_score(y_true, y_pred, average="micro")
 
-            precisions.append(precision)
-            recalls.append(recall)
-            aps.append(ap)
+                precisions[emb_name].append(precision)
+                recalls[emb_name].append(recall)
+                aps[emb_name].append(ap)
 
-        return precisions, recalls, thresholds, aps
+        return precisions, recalls, aps
 
-    def plot_pr_curve(self, precisions, recalls, thresholds, aps):
-        plt.plot([0, 1.05], [0, 1.05], '--', color='gray')
-        title = 'Precision-Recall Curve'
-        plt.title(title)
-        for i in range(len(precisions)):
-            plt.plot(recalls[i]['micro'], precisions[i]['micro'], label='{}: AP: {}%'.format(self.mask_names[i], round(aps[i]['micro'] * 100, 2)))
+    def plot_pr_curve(self, precisions, recalls, aps, target_type):
+        for emb_name in self.config.test_embedder_names:
+            plt.plot([0, 1.05], [0, 1.05], '--', color='gray')
+            title = 'Precision-Recall Curve'
+            plt.title(title)
+            for i in range(len(precisions)):
+                plt.plot(recalls[emb_name][i]['micro'],
+                         precisions[emb_name][i]['micro'],
+                         label='{}: AP: {}%'.format(self.mask_names[i], round(aps[emb_name][i]['micro'] * 100, 2)))
 
-        plt.gca().set_ylabel('Precision')
-        plt.gca().set_xlabel('Recall')
-        plt.gca().set_xlim([0, 1.05])
-        plt.gca().set_ylim([0, 1.05])
+            plt.gca().set_ylabel('Precision')
+            plt.gca().set_xlabel('Recall')
+            plt.gca().set_xlim([0, 1.05])
+            plt.gca().set_ylim([0, 1.05])
 
-        handles, labels = plt.gca().get_legend_handles_labels()
-        # sort both labels and handles by labels
-        labels, handles = zip(*sorted(zip(labels, handles),
-                                      key=lambda t: float(t[0].split('AP: ')[1].replace('%', '')),
-                                      reverse=True))
-        plt.gca().legend(handles, labels, loc=4)
-        plt.savefig(self.config.current_dir + '/final_results/pr-curves/pr-curve.png')
+            handles, labels = plt.gca().get_legend_handles_labels()
+            # sort both labels and handles by labels
+            labels, handles = zip(*sorted(zip(labels, handles),
+                                          key=lambda t: float(t[0].split('AP: ')[1].replace('%', '')),
+                                          reverse=True))
+            plt.gca().legend(handles, labels, loc=4)
+            plt.savefig(os.path.join(self.config.current_dir, 'final_results', 'pr-curves', target_type + '_' + emb_name + '.png'))
+            plt.close()
 
     def calc_preds(self, cls_id, all_embeddings, target_type):
         df = pd.DataFrame(columns=['emb_name', 'mask_name', 'y_true', 'y_pred'])

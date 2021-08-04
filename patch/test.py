@@ -79,10 +79,12 @@ class Evaluator:
         if len(self.config.celeb_lab) > 1:
             converters = {"y_true": lambda x: list(map(int, x.strip("[]").split(", "))),
                           "y_pred": lambda x: list(map(float, x.strip("[]").split(", ")))}
-            # df_with_mask = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', 'preds_with_mask.csv'), convertors=convertors)
-            df_without_mask = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', 'preds_without_mask.csv'), converters=converters)
-            precisions, recalls, aps = self.get_pr(df_without_mask)
-            self.plot_pr_curve(precisions, recalls, aps)
+            preds_with_mask_df = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', 'preds_with_mask.csv'), convertors=convertors)
+            preds_without_mask_df = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', 'preds_without_mask.csv'), converters=converters)
+            precisions_with_mask, recalls_with_mask, aps_with_mask = self.get_pr(preds_with_mask_df)
+            self.plot_pr_curve(precisions_with_mask, recalls_with_mask, aps_with_mask, target_type='with_mask')
+            precisions_without_mask, recalls_without_mask, aps_without_mask = self.get_pr(preds_without_mask_df)
+            self.plot_pr_curve(precisions_without_mask, recalls_without_mask, aps_without_mask, target_type='without_mask')
 
     def plot_sim_box(self, similarities, target_type):
         for emb_name in self.config.test_embedder_names:
@@ -98,7 +100,7 @@ class Evaluator:
             plt.ylabel('Similarity')
             # plt.gca().set_ylim([, 1.05])
             # plt.legend()
-            plt.savefig(os.path.join(self.config.current_dir, 'final_results', 'sim-boxes', + target_type + '_' + emb_name + '.png'))
+            plt.savefig(os.path.join(self.config.current_dir, 'final_results', 'sim-boxes', target_type + '_' + emb_name + '.png'))
             plt.close()
 
     def write_similarities_to_disk(self, sims, img_names, cls_ids, sim_type, emb_name):

@@ -79,7 +79,7 @@ class Evaluator:
         if len(self.config.celeb_lab) > 1:
             converters = {"y_true": lambda x: list(map(int, x.strip("[]").split(", "))),
                           "y_pred": lambda x: list(map(float, x.strip("[]").split(", ")))}
-            preds_with_mask_df = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', 'preds_with_mask.csv'), convertors=converters)
+            preds_with_mask_df = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', 'preds_with_mask.csv'), converters=converters)
             preds_without_mask_df = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', 'preds_without_mask.csv'), converters=converters)
             precisions_with_mask, recalls_with_mask, aps_with_mask = self.get_pr(preds_with_mask_df)
             self.plot_pr_curve(precisions_with_mask, recalls_with_mask, aps_with_mask, target_type='with_mask')
@@ -208,7 +208,7 @@ class Evaluator:
             plt.plot([0, 1.05], [0, 1.05], '--', color='gray')
             title = 'Precision-Recall Curve'
             plt.title(title)
-            for i in range(len(precisions)):
+            for i in range(len(self.mask_names)):
                 plt.plot(recalls[emb_name][i]['micro'],
                          precisions[emb_name][i]['micro'],
                          label='{}: AP: {}%'.format(self.mask_names[i], round(aps[emb_name][i]['micro'] * 100, 2)))

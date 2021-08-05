@@ -12,6 +12,7 @@ from sklearn.metrics import precision_recall_curve as pr, average_precision_scor
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import label_binarize
 import matplotlib
+import scipy
 from pathlib import Path
 import seaborn as sns
 import pandas as pd
@@ -237,11 +238,12 @@ class Evaluator:
             target_embedding = target_embedding.cpu().numpy().squeeze(-2)
             for i, mask_name in enumerate(self.mask_names):
                 emb = all_embeddings[emb_name][i]
-                cos_sim = (cosine_similarity(emb, target_embedding) + 1) / 2
-                max_idx = np.argmax(cos_sim, axis=1)
-                max_mask = label_binarize(max_idx, classes=class_labels)
-                y_pred = np.round(cos_sim * max_mask, decimals=3)
-                y_pred = [lab.tolist() for lab in y_pred]
+                cos_sim = cosine_similarity(emb, target_embedding)
+                # cos_sim = (cosine_similarity(emb, target_embedding) + 1) / 2
+                # max_idx = np.argmax(cos_sim, axis=1)
+                # max_mask = label_binarize(max_idx, classes=class_labels)
+                # y_pred = np.round(cos_sim * max_mask, decimals=3)
+                y_pred = [lab.tolist() for lab in cos_sim]
                 new_rows = pd.DataFrame({
                     'emb_name': [emb_name] * len(y_true),
                     'mask_name': [mask_name] * len(y_true),

@@ -75,6 +75,8 @@ class Evaluator:
         self.calc_overall_similarity()
         similarities_target_with_mask = self.get_final_similarity_from_disk('with_mask')
         similarities_target_without_mask = self.get_final_similarity_from_disk('without_mask')
+        self.calc_similarity_statistics(similarities_target_with_mask, target_type='with')
+        self.calc_similarity_statistics(similarities_target_without_mask, target_type='without')
         self.plot_sim_box(similarities_target_with_mask, target_type='with')
         self.plot_sim_box(similarities_target_without_mask, target_type='without')
         if len(self.config.celeb_lab) > 1:
@@ -84,8 +86,10 @@ class Evaluator:
             preds_without_mask_df = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', 'preds_without_mask.csv'), converters=converters)
             precisions_with_mask, recalls_with_mask, aps_with_mask = self.get_pr(preds_with_mask_df)
             self.plot_pr_curve(precisions_with_mask, recalls_with_mask, aps_with_mask, target_type='with_mask')
+            self.calc_ap_statistics(aps_with_mask, target_type='with_mask')
             precisions_without_mask, recalls_without_mask, aps_without_mask = self.get_pr(preds_without_mask_df)
             self.plot_pr_curve(precisions_without_mask, recalls_without_mask, aps_without_mask, target_type='without_mask')
+            self.calc_ap_statistics(aps_without_mask, target_type='without_mask')
 
     def plot_sim_box(self, similarities, target_type):
         for emb_name in self.config.test_embedder_names:
@@ -252,3 +256,28 @@ class Evaluator:
                 })
                 df = df.append(new_rows, ignore_index=True)
         return df
+
+    def calc_similarity_statistics(self, sim_dict, target_type):
+        df_mean = pd.DataFrame(columns=['emb_name'] + self.mask_names)
+        df_std = pd.DataFrame(columns=['emb_name'] + self.mask_names)
+        for emb_name, sim_values in sim_dict.items():
+            sim_values = np.array([np.array(lst) for lst in sim_values])
+            sim_mean = np.round(sim_values.mean(axis=1), decimals=3)
+            sim_std = np.round(sim_values.std(axis=1), decimals=3)
+            df_mean = df_mean.append(pd.Series([emb_name] + sim_mean.tolist(), index=df_mean.columns), ignore_index=True)
+            df_std = df_std.append(pd.Series([emb_name] + sim_std.tolist(), index=df_std.columns), ignore_index=True)
+        df_mean.to_csv(os.path.join(self.config.current_dir, 'final_results', 'stats', 'similarity', 'mean_df' + '_' + target_type + '.csv'), index=False)
+        df_std.to_csv(os.path.join(self.config.current_dir, 'final_results', 'stats', 'similarity','std_df' + '_' + target_type + '.csv'), index=False)
+
+    def calc_ap_statistics(self, ap_dict, target_type):
+        df_mean = pd.DataFrame(columns=['emb_name'] + self.mask_names)
+        df_std = pd.DataFrame(columns=['emb_name'] + self.mask_names)
+        for emb_name, sim_values in ap_dict.items():
+            micro_values = []
+            for value in sim_values:
+                micro_values.append(round(value['micro'], 3))
+            df_mean = df_mean.append(pd.Series([emb_name] + micro_values, index=df_mean.columns), ignore_index=True)
+            df_std = df_std.append(pd.Series([emb_name] + micro_values, index=df_std.columns), ignore_index=True)
+        df_mean.to_csv(os.path.join(self.config.current_dir, 'final_results', 'stats', 'average_precision', 'mean_df' + '_' + target_type + '.csv'), index=False)
+        df_std.to_csv(os.path.join(self.config.current_dir, 'final_results', 'stats', 'average_precision', 'std_df' + '_' + target_type + '.csv'), index=False)
+

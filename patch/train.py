@@ -92,9 +92,10 @@ class AdversarialMask:
     def create_folders(self):
         Path('/'.join(self.config.current_dir.split('/')[:2])).mkdir(parents=True, exist_ok=True)
         Path(self.config.current_dir).mkdir(parents=True, exist_ok=True)
-        Path(self.config.current_dir + '/final_results').mkdir(parents=True, exist_ok=True)
         Path(self.config.current_dir + '/final_results/sim-boxes').mkdir(parents=True, exist_ok=True)
         Path(self.config.current_dir + '/final_results/pr-curves').mkdir(parents=True, exist_ok=True)
+        Path(self.config.current_dir + '/final_results/stats/similarity').mkdir(parents=True, exist_ok=True)
+        Path(self.config.current_dir + '/final_results/stats/average_precision').mkdir(parents=True, exist_ok=True)
         Path(self.config.current_dir + '/saved_preds').mkdir(parents=True, exist_ok=True)
         Path(self.config.current_dir + '/saved_patches').mkdir(parents=True, exist_ok=True)
         Path(self.config.current_dir + '/saved_similarities').mkdir(parents=True, exist_ok=True)

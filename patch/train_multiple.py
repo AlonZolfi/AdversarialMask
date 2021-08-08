@@ -7,13 +7,14 @@ import pickle
 from pathlib import Path
 import datetime
 import time
+from visualization import box_plots_examples
 
 
 def train_multiple_persons():
     mode = 'private'
     config = patch_config_types[mode]()
     output_folders = []
-    for i, lab in enumerate(os.listdir(config.img_dir)[:1]):
+    for i, lab in enumerate(os.listdir(config.img_dir)[:100]):
         config.update_current_dir()
         config.set_attribute('celeb_lab', [lab])
         config.set_attribute('celeb_lab_mapper', {0: lab})
@@ -33,6 +34,9 @@ def train_multiple_persons():
     Path(final_output_path).mkdir(parents=True, exist_ok=True)
     for output_folder in output_folders:
         move(output_folder, final_output_path)
+    Path(os.path.join(final_output_path, 'combined_sim_boxes')).mkdir(parents=True, exist_ok=True)
+    box_plots_examples.gather_sim_and_plot(target_type='with_mask', embedder_names=config.test_embedder_names, job_id=os.environ['SLURM_JOBID'])
+    box_plots_examples.gather_sim_and_plot(target_type='without_mask', embedder_names=config.test_embedder_names, job_id=os.environ['SLURM_JOBID'])
 
 
 train_multiple_persons()

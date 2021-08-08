@@ -18,7 +18,7 @@ def load_all_mask_similarities(raw_data_path, mask_name):
     return sims
 
 
-def plot_sim_box(similarities, target_type):
+def plot_sim_box(similarities, target_type, emb_name, output_folder):
     sim_df = pd.DataFrame()
     for i in range(len(similarities)):
         sim_df[mask_names[i]] = similarities[i]
@@ -27,7 +27,7 @@ def plot_sim_box(similarities, target_type):
     sns.boxplot(data=sim_df_sorted).set_title('Similarities Difference')
     plt.xlabel('Mask Type')
     plt.ylabel('Similarity')
-    plt.savefig('combined_box_plot_' + target_type + '.png')
+    plt.savefig(os.path.join(output_folder, 'combined_sim_boxes', target_type + '_' + emb_name + '.png'))
     plt.close()
 
 
@@ -41,19 +41,24 @@ def get_final_similarity_from_disk(file_name):
             except EOFError:
                 break
     return sims
-# get_final_similarity_from_disk('C:\\Users\\Administrator\\Desktop\\University\\Work\\AdversarialMask\\patch\\experiments\\August\\03-08-2021_18-06-45\\saved_similarities\\resnet100_arcface\\with_mask_Clean.pickle')
 
 
-def gather_sim_and_plot(target_type, embedder_name, job_id):
-    output_folders = glob.glob('../patch/experiments/**/*{}'.format(job_id, job_id), recursive=True)[1:]
-    sims = []
-    for i, mask_name in enumerate(mask_names):
-        file_names = [glob.glob(os.path.join(folder, 'saved_similarities', embedder_name, target_type + '_' + mask_name + '.pickle')) for folder in output_folders]
-        sims.append([])
-        for file_name in file_names:
-            sims[i].extend(get_final_similarity_from_disk(file_name[0]))
-    plot_sim_box(sims, target_type)
+def gather_sim_and_plot(target_type, embedder_names, job_id):
+    for emb_name in embedder_names:
+        output_folders = glob.glob('../patch/experiments/**/*{}'.format(job_id), recursive=True)
+        sims = []
+        for i, mask_name in enumerate(mask_names):
+            file_names = [glob.glob(os.path.join(folder, 'saved_similarities', emb_name, target_type + '_' + mask_name + '.pickle')) for folder in output_folders[1:]]
+            sims.append([])
+            for file_name in file_names:
+                sim = get_final_similarity_from_disk(file_name[0])
+                sims[i].extend(sim)
+        plot_sim_box(sims, target_type, emb_name, output_folders[0])
 
 
-gather_sim_and_plot(target_type='with_mask', embedder_name='arcface_100', job_id='148213')
-gather_sim_and_plot(target_type='without_mask', embedder_name='arcface_100', job_id='148213')
+# gather_sim_and_plot(target_type='with_mask', embedder_names=['resnet100_arcface', 'resnet50_arcface', 'resnet34_arcface', 'resnet18_arcface',
+#                                     'resnet100_cosface', 'resnet50_cosface', 'resnet34_cosface', 'resnet18_cosface',
+#                                     'resnet100_magface'], job_id='148758')
+# gather_sim_and_plot(target_type='without_mask', embedder_names=['resnet100_arcface', 'resnet50_arcface', 'resnet34_arcface', 'resnet18_arcface',
+#                                     'resnet100_cosface', 'resnet50_cosface', 'resnet34_cosface', 'resnet18_cosface',
+#                                     'resnet100_magface'], job_id='148758')

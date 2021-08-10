@@ -173,13 +173,13 @@ def load_embedder(embedder_names, device):
     for embedder_name in embedder_names:
         backbone, head = embedder_name.split('_')
         weights_path = embedders_dict[backbone]['heads'][head]['weights_path']
-        if 'arcface' in embedder_name:
-            embedder = InsightFaceResnetBackbone.IResNet(InsightFaceResnetBackbone.IBasicBlock, layers=embedders_dict[backbone]['layers']).to(device).eval()
-            sd = torch.load(weights_path, map_location=device)
-        elif 'magface' in embedder_name:
+        sd = torch.load(weights_path, map_location=device)
+        if 'magface' in embedder_name:
             embedder = MFBackbone.IResNet(MFBackbone.IBasicBlock, layers=embedders_dict[backbone]['layers']).to(device).eval()
-            sd = torch.load(weights_path, map_location=device)['state_dict']
-            sd = rewrite_weights_dict(sd)
+            sd = rewrite_weights_dict(sd['state_dict'])
+        else:
+            embedder = InsightFaceResnetBackbone.IResNet(InsightFaceResnetBackbone.IBasicBlock,
+                                                         layers=embedders_dict[backbone]['layers']).to(device).eval()
         embedder.load_state_dict(sd)
         embedders[embedder_name] = embedder
     return embedders

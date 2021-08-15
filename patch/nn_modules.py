@@ -58,6 +58,11 @@ class FaceXZooProjector(nn.Module):
         self.max_trans_x = 0.03
         self.min_trans_y = -0.03
         self.max_trans_y = 0.03
+        self.min_contrast = 0.8
+        self.max_contrast = 1.2
+        self.min_brightness = -0.1
+        self.max_brightness = 0.1
+        self.noise_factor = 0.10
 
     def forward(self, img_batch, landmarks, adv_patch, uv_mask_src=None, do_aug=False):
         pos, vertices = self.get_vertices(landmarks, img_batch)
@@ -96,14 +101,27 @@ class FaceXZooProjector(nn.Module):
     def get_new_texture(self, texture, adv_patch, uv_mask_src, do_aug):
         if uv_mask_src is None:
             uv_mask_src = self.uv_mask_src
+        adv_patch = adv_patch.expand(texture.shape[0], -1, -1, -1)
+        uv_mask_src = uv_mask_src.expand(texture.shape[0], -1, -1, -1)
         if do_aug:
+            contrast = self.get_random_tensor(adv_patch, self.min_contrast, self.max_contrast)
+            brightness = self.get_random_tensor(adv_patch, self.min_brightness, self.max_brightness)
+            noise = torch.empty(adv_patch.shape, device=self.device).uniform_(-1, 1) * self.noise_factor
+            adv_patch = adv_patch * contrast + brightness + noise
+            adv_patch.data.clamp_(0.000001, 0.999999)
             merged = torch.cat([adv_patch, uv_mask_src], dim=1)
             merged_aug = self.apply_random_grid_sample(merged)
             adv_patch = merged_aug[:, :3]
-            uv_mask_src = merged_aug[:, 3]
-        uv_face_src = self.uv_face_src - uv_mask_src
+            uv_mask_src = merged_aug[:, 3:]
+        uv_face_src = self.uv_face_src.expand(texture.shape[0], -1, -1, -1) - uv_mask_src
         new_texture = adv_patch * (1 - uv_face_src) + texture * uv_face_src
         return new_texture
+
+    def get_random_tensor(self, adv_patch, min_val, max_val):
+        t = torch.empty(adv_patch.shape[0], device=self.device).uniform_(min_val, max_val)
+        t = t.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+        t = t.expand(-1, adv_patch.size(-3), adv_patch.size(-2), adv_patch.size(-1))
+        return t
 
     def apply_random_grid_sample(self, face_mask):
         theta = torch.zeros((face_mask.shape[0], 2, 3), dtype=torch.float, device=self.device)

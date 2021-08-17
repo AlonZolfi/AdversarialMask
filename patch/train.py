@@ -199,7 +199,7 @@ class AdversarialMask:
         # transforms.ToPILImage()(patch.squeeze(0) * uv_face).show()
         return patch
 
-    def forward_step(self, img_batch, adv_patch_cpu, img_names, cls_id, train=True):
+    def forward_step(self, img_batch, adv_patch_cpu, img_names, cls_id):
         img_batch = img_batch.to(device)
         adv_patch = adv_patch_cpu.to(device)
         cls_id = cls_id.to(device)
@@ -212,7 +212,7 @@ class AdversarialMask:
         for embedder_name, emb_model in self.embedders.items():
             patch_embs[embedder_name] = emb_model(img_batch_applied)
 
-        tv_loss = self.total_variation(adv_patch, train)
+        tv_loss = self.total_variation(adv_patch)
         loss = self.loss_fn(patch_embs, tv_loss, cls_id)
 
         return loss, [img_batch, adv_patch, img_batch_applied, patch_embs, tv_loss]
@@ -276,7 +276,6 @@ class AdversarialMask:
         final_patch_img.save(self.config.current_dir + '/final_results/final_patch.png', 'PNG')
         new_size = tuple(self.config.magnification_ratio * s for s in self.config.img_size)
         transforms.Resize(new_size)(final_patch_img).save(self.config.current_dir + '/final_results/final_patch_magnified.png', 'PNG')
-
         torch.save(self.best_patch, self.config.current_dir + '/final_results/final_patch_raw.pt')
 
         with open(self.config.current_dir + '/losses/train_losses', 'wb') as fp:

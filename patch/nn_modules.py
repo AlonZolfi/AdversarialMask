@@ -62,7 +62,7 @@ class FaceXZooProjector(nn.Module):
         self.max_contrast = 1.2
         self.min_brightness = -0.1
         self.max_brightness = 0.1
-        self.noise_factor = 0.10
+        self.noise_factor = 0.05
 
     def forward(self, img_batch, landmarks, adv_patch, uv_mask_src=None, do_aug=False):
         pos, vertices = self.get_vertices(landmarks, img_batch)
@@ -490,24 +490,11 @@ def read_landmark_106_array(face_lms):
 class TotalVariation(nn.Module):
     def __init__(self, device) -> None:
         super(TotalVariation, self).__init__()
+        self.device = device
         self.uv_mask_src = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L')).to(device).squeeze()
-        non_zero_indices = torch.nonzero(self.uv_mask_src)
-        self.left = torch.min(non_zero_indices[..., 1])
-        self.right = torch.max(non_zero_indices[..., 1])
-        self.bottom = torch.min(non_zero_indices[..., 0])
-        self.top = torch.max(non_zero_indices[..., 0])
+        self.number_of_pixels = torch.count_nonzero(self.uv_mask_src)
 
-    def forward(self, adv_patch, train=True):
-        tv_patch = adv_patch[..., self.bottom:self.top, self.left:self.right]
-        if train:
-            tv_patch.register_hook(self.zero_grads)
-        # transforms.ToPILImage()(tv_patch.detach().cpu().squeeze()).show()
-        loss = total_variation(tv_patch) / torch.numel(tv_patch)
-        # h_tv = F.l1_loss(adv_patch[..., 1:, :], adv_patch[..., :-1, :], reduction='mean')  # calc height tv
-        # w_tv = F.l1_loss(adv_patch[..., :, 1:], adv_patch[..., :, :-1], reduction='mean')  # calc width tv
-        # loss = h_tv + w_tv
+    def forward(self, adv_patch):
+        loss = total_variation(adv_patch * self.uv_mask_src) / self.number_of_pixels
         return loss
 
-    def zero_grads(self, grads):
-        tv_mask = self.uv_mask_src[self.bottom:self.top, self.left:self.right]
-        grads[:, :, tv_mask == 0] = 0

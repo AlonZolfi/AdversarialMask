@@ -81,14 +81,14 @@ class BaseConfiguration:
         self.shuffle = True
         self.img_size = (112, 112)
         self.train_batch_size = 4
-        self.test_batch_size = 64
+        self.test_batch_size = 32
         self.magnification_ratio = 30
 
         # Attack options
         self.mask_aug = True
         self.patch_size = (256, 256)  # height, width
         self.initial_patch = 'white'  # body, white, random, stripes, l_stripes
-        self.epochs = 1
+        self.epochs = 10
         self.start_learning_rate = 1e-2
         self.es_patience = 7
         self.sc_patience = 2
@@ -102,7 +102,7 @@ class BaseConfiguration:
         self.landmark_detector_type = 'mobilefacenet'  # face_alignment, mobilefacenet
 
         # Embedder options
-        self.train_embedder_names = ['resnet100_arcface']
+        self.train_embedder_names = ['resnet100_arcface', 'resnet100_magface']
         self.test_embedder_names = ['resnet100_arcface', 'resnet50_arcface', 'resnet34_arcface', 'resnet18_arcface',
                                     'resnet100_cosface', 'resnet50_cosface', 'resnet34_cosface', 'resnet18_cosface',
                                     'resnet100_magface']
@@ -110,7 +110,7 @@ class BaseConfiguration:
 
         # Loss options
         self.dist_loss_type = 'cossim'  # cossim, L2, L1
-        self.dist_weight = 0.99
+        self.dist_weight = 1
         self.tv_weight = 0.01
 
         # Test options

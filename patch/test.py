@@ -123,6 +123,7 @@ class Evaluator:
                 pickle.dump(sim, f)
 
     def apply_all_masks(self, img_batch, adv_patch):
+        print(adv_patch.shape)
         img_batch_applied_adv = utils.apply_mask(self.adv_mask_class.location_extractor,
                                                  self.adv_mask_class.fxz_projector, img_batch, adv_patch)
         img_batch_applied_random = utils.apply_mask(self.adv_mask_class.location_extractor,

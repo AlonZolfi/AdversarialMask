@@ -129,10 +129,11 @@ def get_image_by_vectorization_with_unique_small(bboxes, new_tri_depth, new_tri_
 
     color_img = torch.zeros((3, h, w), device=device)
     color_img = torch.where((mask.sum(dim=-1) == 0), color_img, texture_sorted.T[dp].permute(2, 0, 1))
-
+    # from torchvision import transforms
+    # transforms.ToPILImage()(color_img).show()
     mask_img = torch.zeros((1, h, w), device=device)
     mask_img = torch.where((mask.sum(dim=-1) == 0), mask_img, torch.ones(1, device=device))
-
+    # transforms.ToPILImage()(mask_img).show()
     return color_img, mask_img
 
 

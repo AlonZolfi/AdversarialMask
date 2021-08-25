@@ -177,10 +177,11 @@ class AdversarialMask:
                 patch[0, 2, i, :] = random.randint(0, 255) / 255
         elif p_type =='l_stripes':
             patch = torch.zeros((1, 3, self.config.patch_size[0], self.config.patch_size[1]), dtype=torch.float32)
-            for i in range(int(patch.size()[2]/16)):
-                patch[0, 0, int(patch.size()[2]/16)*i:int(patch.size()[2]/16)*(i+1), :] = random.randint(0, 255) / 255
-                patch[0, 1, int(patch.size()[2]/16)*i:int(patch.size()[2]/16)*(i+1), :] = random.randint(0, 255) / 255
-                patch[0, 2, int(patch.size()[2]/16)*i:int(patch.size()[2]/16)*(i+1), :] = random.randint(0, 255) / 255
+            size = 16
+            for i in range(int(patch.size()[2]/size)):
+                patch[0, 0, int(patch.size()[2]/size)*i:int(patch.size()[2]/size)*(i+1), :] = random.randint(0, 255) / 255
+                patch[0, 1, int(patch.size()[2]/size)*i:int(patch.size()[2]/size)*(i+1), :] = random.randint(0, 255) / 255
+                patch[0, 2, int(patch.size()[2]/size)*i:int(patch.size()[2]/size)*(i+1), :] = random.randint(0, 255) / 255
         elif p_type == 'random':
             patch = torch.rand((1, 3, self.config.patch_size[0], self.config.patch_size[1]), dtype=torch.float32)
         elif p_type == 'white':
@@ -270,7 +271,7 @@ class AdversarialMask:
         plt.close()
 
     def save_final_objects(self):
-        alpha = transforms.ToTensor()(Image.open('../prnet/old_uv_templates/new_uv.png').convert('L'))
+        alpha = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L'))
         final_patch = torch.cat([self.best_patch.squeeze(0), alpha])
         final_patch_img = transforms.ToPILImage()(final_patch.squeeze(0))
         final_patch_img.save(self.config.current_dir + '/final_results/final_patch.png', 'PNG')

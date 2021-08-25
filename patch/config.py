@@ -80,12 +80,12 @@ class BaseConfiguration:
         self.test_split = 0.8
         self.shuffle = True
         self.img_size = (112, 112)
-        self.train_batch_size = 4
-        self.test_batch_size = 32
+        self.train_batch_size = 1
+        self.test_batch_size = 1
         self.magnification_ratio = 30
 
         # Attack options
-        self.mask_aug = True
+        self.mask_aug = False
         self.patch_size = (256, 256)  # height, width
         self.initial_patch = 'white'  # body, white, random, stripes, l_stripes
         self.epochs = 10

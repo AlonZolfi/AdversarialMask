@@ -7,7 +7,7 @@ from PIL import Image
 
 cfg = BaseConfiguration()
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-mask_t = utils.load_mask(cfg, 'experiments/June/30-06-2021_12-27-15x/final_results/final_patch.png', device)
+mask_t = utils.load_mask(cfg, '../data/masks/final_patch.png', device)
 face_landmark_detector = utils.get_landmark_detector(cfg, device)
 location_extractor = LandmarkExtractor(device, face_landmark_detector, cfg.img_size).to(device)
 fxz_projector = FaceXZooProjector(device, cfg.img_size, cfg.patch_size).to(device)

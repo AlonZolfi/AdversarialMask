@@ -254,9 +254,9 @@ class EarlyStopping:
 
 
 @torch.no_grad()
-def apply_mask(location_extractor, fxz_projector, img_batch, patch_rgb, patch_alpha=None):
+def apply_mask(location_extractor, fxz_projector, img_batch, patch_rgb, patch_alpha=None, is_3d=False):
     preds = location_extractor(img_batch)
-    img_batch_applied = fxz_projector(img_batch, preds, patch_rgb, uv_mask_src=patch_alpha)
+    img_batch_applied = fxz_projector(img_batch, preds, patch_rgb, uv_mask_src=patch_alpha, is_3d=is_3d)
     return img_batch_applied
 
 
@@ -418,7 +418,7 @@ def get_person_embedding(config, loader, location_extractor, fxz_projector, embe
             if include_others:
                 mask_path = masks_path[random.randint(0, 2)]
                 mask_t = load_mask(config, mask_path, device)
-                applied_batch = apply_mask(location_extractor, fxz_projector, img_batch, mask_t[:, :3], mask_t[:, 3])
+                applied_batch = apply_mask(location_extractor, fxz_projector, img_batch, mask_t[:, :3], mask_t[:, 3], is_3d=True)
                 img_batch = torch.cat([img_batch, applied_batch], dim=0)
                 person_indices = person_indices.repeat(2)
             embedding = embedders[embedder_name](img_batch)

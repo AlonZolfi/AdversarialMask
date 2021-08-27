@@ -123,7 +123,6 @@ class Evaluator:
                 pickle.dump(sim, f)
 
     def apply_all_masks(self, img_batch, adv_patch):
-        print(adv_patch.shape)
         img_batch_applied_adv = utils.apply_mask(self.adv_mask_class.location_extractor,
                                                  self.adv_mask_class.fxz_projector, img_batch, adv_patch)
         img_batch_applied_random = utils.apply_mask(self.adv_mask_class.location_extractor,
@@ -132,15 +131,15 @@ class Evaluator:
         img_batch_applied_blue = utils.apply_mask(self.adv_mask_class.location_extractor,
                                                   self.adv_mask_class.fxz_projector, img_batch,
                                                   self.blue_mask_t[:, :3],
-                                                  self.blue_mask_t[:, 3])
+                                                  self.blue_mask_t[:, 3], is_3d=True)
         img_batch_applied_black = utils.apply_mask(self.adv_mask_class.location_extractor,
                                                    self.adv_mask_class.fxz_projector, img_batch,
                                                    self.black_mask_t[:, :3],
-                                                   self.black_mask_t[:, 3])
+                                                   self.black_mask_t[:, 3], is_3d=True)
         img_batch_applied_white = utils.apply_mask(self.adv_mask_class.location_extractor,
                                                    self.adv_mask_class.fxz_projector, img_batch,
                                                    self.white_mask_t[:, :3],
-                                                   self.white_mask_t[:, 3])
+                                                   self.white_mask_t[:, 3], is_3d=True)
 
         return img_batch_applied_adv, img_batch_applied_random, img_batch_applied_blue, img_batch_applied_black, img_batch_applied_white
 

@@ -182,6 +182,10 @@ class AdversarialMask:
                 patch[0, 0, int(patch.size()[2]/size)*i:int(patch.size()[2]/size)*(i+1), :] = random.randint(0, 255) / 255
                 patch[0, 1, int(patch.size()[2]/size)*i:int(patch.size()[2]/size)*(i+1), :] = random.randint(0, 255) / 255
                 patch[0, 2, int(patch.size()[2]/size)*i:int(patch.size()[2]/size)*(i+1), :] = random.randint(0, 255) / 255
+            for i in range(0, int(patch.size()[3]/size), 2):
+                patch[0, 0, :, int(patch.size()[3]/size)*i:int(patch.size()[3]/size)*(i+1)] = random.randint(0, 255) / 255
+                patch[0, 1, :, int(patch.size()[3]/size)*i:int(patch.size()[3]/size)*(i+1)] = random.randint(0, 255) / 255
+                patch[0, 2, :, int(patch.size()[3]/size)*i:int(patch.size()[3]/size)*(i+1)] = random.randint(0, 255) / 255
         elif p_type == 'random':
             patch = torch.rand((1, 3, self.config.patch_size[0], self.config.patch_size[1]), dtype=torch.float32)
         elif p_type == 'white':

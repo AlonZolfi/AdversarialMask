@@ -11,6 +11,7 @@ from torchvision import transforms
 import kornia
 from kornia.geometry.homography import find_homography_dlt
 from kornia.losses import total_variation
+from kornia.utils import create_meshgrid
 
 from prnet.prnet import PRNet
 import render
@@ -51,7 +52,8 @@ class FaceXZooProjector(nn.Module):
         self.patch_size_height = patch_size[0]
         self.device = device
         self.uv_mask_src = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L')).to(device).unsqueeze(0)
-        self.uv_face_src = transforms.ToTensor()(Image.open('../prnet/uv_face_mask.png').convert('L')).to(device).unsqueeze(0)
+        self.uv_face_src = transforms.ToTensor()(Image.open('../prnet/uv_face_mask.png').convert('L')).to(
+            device).unsqueeze(0)
         self.triangles = torch.from_numpy(np.loadtxt('../prnet/triangles.txt').astype(np.int64)).T.to(device)
         self.minangle = -3 / 180 * math.pi
         self.maxangle = 3 / 180 * math.pi
@@ -65,25 +67,35 @@ class FaceXZooProjector(nn.Module):
         self.max_brightness = 0.1
         self.noise_factor = 0.05
 
-    def forward(self, img_batch, landmarks, adv_patch, uv_mask_src=None, do_aug=False):
-        pos_orig, vertices_orig, src_orig = self.get_vertices(img_batch, landmarks)
-        texture = kornia.geometry.remap(img_batch, map_x=pos_orig[:, 0], map_y=pos_orig[:, 1], mode='nearest') * self.uv_face_src
-        # transforms.ToPILImage()(texture[0]).show()
-        # adv_patch_other = F.interpolate(adv_patch, (112, 112))
-        # adv_patch_other, _ = self.prn.preprocess(adv_patch, None, resolution=112)
-        # transforms.ToPILImage()(adv_patch_other[0]).show()
-        adv_patch_other = self.align_patch(adv_patch, src_orig, landmarks)
-        texture_patch = kornia.geometry.remap(adv_patch_other, map_x=pos_orig[:, 0], map_y=pos_orig[:, 1], mode='nearest') * self.uv_face_src
-        # transforms.ToPILImage()(texture_patch[0]).show()
+    def forward(self, img_batch, landmarks, adv_patch, uv_mask_src=None, do_aug=False, is_3d=False):
+        # transforms.ToPILImage()(img_batch[0].detach().cpu()).show()
+        pos_orig, vertices_orig = self.get_vertices(img_batch, landmarks)
+        texture_img = kornia.geometry.remap(img_batch, map_x=pos_orig[:, 0], map_y=pos_orig[:, 1],
+                                            mode='nearest') * self.uv_face_src
+        # transforms.ToPILImage()(texture_img[0].detach().cpu()).show()
 
-        new_texture = torch.where(texture_patch != 0, texture_patch, texture)
-        # transforms.ToPILImage()(new_texture[0]).show()
-        # new_texture = self.get_new_texture(texture, adv_patch, uv_mask_src, do_aug)
-        # transforms.ToPILImage()(new_texture[0]).show()
+        adv_patch = adv_patch.expand(img_batch.shape[0], -1, -1, -1)
+        if not is_3d:
+            adv_patch_other = self.align_patch(adv_patch, landmarks)
+            # adv_patch_other = F.interpolate(adv_patch, (112, 112))
+            # transforms.ToPILImage()(torch.where(adv_patch_other != 0, adv_patch_other, img_batch)[0].detach().cpu()).show()
+            texture_patch = kornia.geometry.remap(adv_patch_other, map_x=pos_orig[:, 0], map_y=pos_orig[:, 1],
+                                                  mode='nearest') * self.uv_face_src
+            # transforms.ToPILImage()(texture_patch[0].detach().cpu()).show()
+            uv_mask_src = torch.where(texture_patch != 0, torch.ones(1, device=self.device),
+                                      torch.zeros(1, device=self.device))
+        else:
+            texture_patch = adv_patch
+            uv_mask_src = uv_mask_src.expand(adv_patch.shape[0], -1, -1, -1)
+
+        if do_aug:
+            texture_patch, uv_mask_src = self.augment_patch(texture_patch, uv_mask_src)
+
+        new_texture = texture_patch * uv_mask_src + texture_img * (1 - uv_mask_src)
+        # transforms.ToPILImage()(new_texture[0].detach().cpu()).show()
 
         new_colors = self.prn.get_colors_from_texture(new_texture)
-        # del new_texture, texture, pos
-        # torch.cuda.empty_cache()
+
         face_mask, new_image = render.render_cy_pt(vertices_orig,
                                                    new_colors,
                                                    self.triangles,
@@ -97,36 +109,137 @@ class FaceXZooProjector(nn.Module):
         new_image = img_batch * (1 - face_mask) + (new_image * face_mask)
         new_image.data.clamp_(0, 1)
 
-        # for i in range(new_image.shape[0]):
-        #     transforms.ToPILImage()(new_image[i]).show()
+        for i in range(new_image.shape[0]):
+            transforms.ToPILImage()(new_image[i]).show()
         return new_image
 
-    def align_patch(self, adv_patch, src_orig, landmarks):
+    def align_patch_old(self, adv_patch, landmarks):
+        # image_info = torch.nonzero(adv_patch, as_tuple=False)
+        # left_upper_idx = torch.min(image_info[:, 3], dim=0)[1]
+        # right_idx = torch.topk(image_info[:, 3], k=4, dim=0)[1]
+        # top_max_idx = torch.min(image_info[:, 2], dim=0)[1]
+        # bottom_idx = torch.max(image_info[:, 2], dim=0)[1]
+
+        src_pts = torch.tensor([[114, 83],  # left nose
+                                [50,  100],  # left upper edge
+                                [50,  156],  # left lower edge
+                                [59,  161],  # 1/5 left chin
+                                [70,  165],  # 2/5 left chin
+                                [85,  169],  # 3/5 left chin
+                                # [96,  171],  # 4/5 left chin
+                                [128, 173],  # middle chin
+                                # [160, 171],  # 4/5 right chin
+                                [171, 169],  # 3/5 right chin
+                                [186, 165],  # 2/5 right chin
+                                [197, 161],  # 1/5 right chin
+                                [205, 156],  # right lower edge
+                                [205, 100],  # right upper edge
+                                [142, 83]  # right noise
+        ], dtype=torch.float32, device=self.device).repeat(landmarks.shape[0], 1, 1)
+        landmarks = landmarks.type(torch.float32)
+        dst_pts = torch.stack([landmarks[:, 31],
+                               landmarks[:, 0],
+                               landmarks[:, 1],
+                               landmarks[:, 4],
+                               landmarks[:, 5],
+                               landmarks[:, 6],
+                               landmarks[:, 8],
+                               landmarks[:, 10],
+                               landmarks[:, 11],
+                               landmarks[:, 12],
+                               landmarks[:, 15],
+                               landmarks[:, 16],
+                               landmarks[:, 35],
+                               ], dim=1)
+        kernel_weights, affine_weights = kornia.geometry.get_tps_transform(dst_pts, src_pts)
+        cropped_image = kornia.warp_image_tps(adv_patch, src_pts, kernel_weights, affine_weights)
+        # tform = kornia.geometry.find_homography_dlt(src_pts, dst_pts)
+        # resolution = 112
+        # cropped_image = kornia.geometry.warp_perspective(adv_patch, tform, dsize=(resolution, resolution),
+        #                                                mode='nearest')
+        transforms.ToPILImage()(cropped_image[0]).show()
+        return cropped_image
+
+    def align_patch(self, adv_patch, landmarks):
+        batch_size = landmarks.shape[0]
+        src_pts = self.get_bbox(adv_patch).repeat(batch_size, 1, 1)
+        landmarks = landmarks.type(torch.float32)
+        left_top = torch.stack((landmarks[:, 2, 0], landmarks[:, 28, 1]), dim=-1)
+        right_top = torch.stack((landmarks[:, 14, 0], landmarks[:, 28, 1]), dim=-1)
+        left_bottom = torch.stack((landmarks[:, 2, 0], landmarks[:, 8, 1]), dim=-1)
+        right_bottom = torch.stack((landmarks[:, 14, 0], landmarks[:, 8, 1]), dim=-1)
+        dst_pts = torch.stack([left_top, right_top, left_bottom, right_bottom], dim=1)
+
+        tform = kornia.get_perspective_transform(src_pts, dst_pts)
+        resolution = 112
+        cropped_image = kornia.geometry.warp_perspective(adv_patch, tform, dsize=(resolution, resolution), mode='nearest')
+        # transforms.ToPILImage()(cropped_image[0]).show()
+
+        # src_pts = torch.tensor([[18,  70],  # left upper edge
+        #                         # [18,  102],  # left lower edge
+        #                         [56,  112],  # left lower edge
+        #                         # [94, 70],  # right lower edge
+        #                         [94, 102],  # right upper edge
+        # ], dtype=torch.float32, device=self.device).repeat(landmarks.shape[0], 1, 1) / 112
+        # dst_pts = torch.stack([landmarks[:, 2],
+        #                        # landmarks[:, 4],
+        #                        landmarks[:, 8],
+        #                        # landmarks[:, 12],
+        #                        landmarks[:, 14],
+        #                        ], dim=1) / 112
+
+        grid = create_meshgrid(112, 112, False, device=self.device).repeat(batch_size, 1, 1, 1)
+
+        for i in range(batch_size):
+            bbox_info = self.get_bbox(cropped_image[i:i+1])
+            left_top = bbox_info[:, 0]
+            right_top = bbox_info[:, 1]
+            max_y_left = torch.clamp_min(-(landmarks[i, 0, 1] - left_top[:, 1]), 0)
+            max_y_right = torch.clamp_min(-(landmarks[i, 16, 1] - right_top[:, 1]), 0)
+            start_idx_left = min(int(left_top[0, 0].item()), resolution)
+            end_idx_left = min(int(start_idx_left + max_y_left.item()), resolution)
+            offset = torch.zeros_like(grid[i, :, start_idx_left:end_idx_left, 1])
+            for j in range(offset.shape[1]):
+                offset[:, j] = max_y_left - j
+            new_values = grid[i, :, start_idx_left:end_idx_left, 1] + offset
+            grid[i, :, start_idx_left:end_idx_left, 1] = new_values
+
+            end_idx_right = min(int(right_top[0, 0].item()), resolution) + 1
+            start_idx_right = min(int(end_idx_right - max_y_right.item()), resolution)
+            offset = torch.zeros_like(grid[i, :, start_idx_right:end_idx_right, 1])
+            for idx, col in enumerate(reversed(range(offset.shape[1]))):
+                offset[:, col] = max_y_right - idx
+            grid[i, :, start_idx_right:end_idx_right, 1] = grid[i, :, start_idx_right:end_idx_right, 1] + offset
+
+        # landmarks = landmarks.type(torch.float32)
+        # dst_pts = torch.stack([landmarks[:, 1],
+        #                        landmarks[:, 4],
+        #                        landmarks[:, 8],
+        #                        landmarks[:, 12],
+        #                        landmarks[:, 15],
+        #                        ], dim=1) / 112
+        # kernel_weights, affine_weights = kornia.geometry.get_tps_transform(dst_pts, src_pts)
+        # cropped_image = kornia.warp_image_tps(cropped_image, src_pts, kernel_weights, affine_weights)
+        cropped_image = kornia.remap(cropped_image, map_x=grid[..., 0], map_y=grid[..., 1], mode='nearest')
+        # transforms.ToPILImage()(cropped_image[0]).show()
+        return cropped_image
+
+    def get_bbox(self, adv_patch):
         image_info = torch.nonzero(adv_patch, as_tuple=False).unsqueeze(0)
         left, _ = torch.min(image_info[:, :, 3], dim=1)
         right, _ = torch.max(image_info[:, :, 3], dim=1)
         top, _ = torch.min(image_info[:, :, 2], dim=1)
         bottom, _ = torch.max(image_info[:, :, 2], dim=1)
-        old_size = (right - left + bottom - top) / 2
-        size = old_size.type(torch.int32)
+        width = right - left
+        height = bottom - top
         # crop image
         center = torch.stack([right - (right - left) / 2.0, bottom - (bottom - top) / 2.0], dim=-1)
-        left_top = torch.stack((center[:, 0]-(size/2), center[:, 1]-(size/2)), dim=-1)
-        right_top = torch.stack((center[:, 0]+(size/2), center[:, 1]-(size/2)), dim=-1)
-        left_bottom = torch.stack((center[:, 0]-(size/2), center[:, 1]+(size/2)), dim=-1)
-        right_bottom = torch.stack((center[:, 0]+(size/2), center[:, 1]+(size/2)), dim=-1)
+        left_top = torch.stack((center[:, 0] - (width / 2), center[:, 1] - (height / 2)), dim=-1)
+        right_top = torch.stack((center[:, 0] + (width / 2), center[:, 1] - (height / 2)), dim=-1)
+        left_bottom = torch.stack((center[:, 0] - (width / 2), center[:, 1] + (height / 2)), dim=-1)
+        right_bottom = torch.stack((center[:, 0] + (width / 2), center[:, 1] + (height / 2)), dim=-1)
         src_pts = torch.stack([left_top, right_top, left_bottom, right_bottom], dim=1)
-        landmarks = landmarks.type(torch.float32)
-        left_top = torch.stack((landmarks[:, 0, 0], landmarks[:, 27, 1]), dim=-1)
-        right_top = torch.stack((landmarks[:, 16, 0], landmarks[:, 27, 1]), dim=-1)
-        left_bottom = torch.stack((landmarks[:, 6, 0], landmarks[:, 8, 1]), dim=-1)
-        right_bottom = torch.stack((landmarks[:, 10, 0], landmarks[:, 8, 1]), dim=-1)
-        dst_pts = torch.stack([left_top, right_top, left_bottom, right_bottom], dim=1)
-        print(src_pts.shape, dst_pts.shape)
-        tform = kornia.geometry.find_homography_dlt(src_pts, dst_pts)
-        resolution = 112
-        cropped_image = kornia.geometry.warp_perspective(adv_patch, tform, dsize=(resolution, resolution), mode='nearest')
-        return cropped_image
+        return src_pts
 
     def get_vertices(self, image, face_lms):
         """Get vertices
@@ -135,28 +248,23 @@ class FaceXZooProjector(nn.Module):
             face_lms: face landmarks.
             image:[0, 255]
         """
-        pos, src_pts = self.prn.process(image, face_lms)
+        pos = self.prn.process(image, face_lms)
         vertices = self.prn.get_vertices(pos)
-        return pos, vertices, src_pts
+        return pos, vertices
 
-    def get_new_texture(self, texture, adv_patch, uv_mask_src, do_aug):
-        if uv_mask_src is None:
-            uv_mask_src = self.uv_mask_src
-        adv_patch = adv_patch.expand(texture.shape[0], -1, -1, -1)
-        uv_mask_src = uv_mask_src.expand(texture.shape[0], -1, -1, -1)
-        if do_aug:
-            contrast = self.get_random_tensor(adv_patch, self.min_contrast, self.max_contrast)
-            brightness = self.get_random_tensor(adv_patch, self.min_brightness, self.max_brightness)
-            noise = torch.empty(adv_patch.shape, device=self.device).uniform_(-1, 1) * self.noise_factor
-            adv_patch = adv_patch * contrast + brightness + noise
-            adv_patch.data.clamp_(0.000001, 0.999999)
-            merged = torch.cat([adv_patch, uv_mask_src], dim=1)
-            merged_aug = self.apply_random_grid_sample(merged)
-            adv_patch = merged_aug[:, :3]
-            uv_mask_src = merged_aug[:, 3:]
-        uv_face_src = self.uv_face_src.expand(texture.shape[0], -1, -1, -1) - uv_mask_src
-        new_texture = adv_patch * (1 - uv_face_src) + texture * uv_face_src
-        return new_texture
+    def augment_patch(self, adv_patch, uv_mask_src):
+        # transforms.ToPILImage()(adv_patch[0]).show()
+        contrast = self.get_random_tensor(adv_patch, self.min_contrast, self.max_contrast)
+        brightness = self.get_random_tensor(adv_patch, self.min_brightness, self.max_brightness)
+        noise = torch.empty(adv_patch.shape, device=self.device).uniform_(-1, 1) * self.noise_factor
+        adv_patch = adv_patch * contrast + brightness + noise
+        adv_patch.data.clamp_(0.000001, 0.999999)
+        merged = torch.cat([adv_patch, uv_mask_src], dim=1)
+        merged_aug = self.apply_random_grid_sample(merged)
+        adv_patch = merged_aug[:, :3]
+        uv_mask_src = merged_aug[:, 3:]
+        # transforms.ToPILImage()(adv_patch[0]).show()
+        return adv_patch, uv_mask_src
 
     def get_random_tensor(self, adv_patch, min_val, max_val):
         t = torch.empty(adv_patch.shape[0], device=self.device).uniform_(min_val, max_val)
@@ -183,6 +291,7 @@ class PRN:
     based on:
     https://github.com/YadiraF/PRNet/blob/master/api.py
     """
+
     def __init__(self, model_path, device, resolution):
         self.resolution = 256
         self.MaxPos = self.resolution * 1.1
@@ -201,25 +310,17 @@ class PRN:
         return left, right, top, bottom
 
     def preprocess(self, img_batch, image_info, resolution=None):
-        if image_info is not None:
-            left, right, top, bottom = self.get_bbox_annot(image_info)
-            ratio = 1.6
-        else:
-            image_info = torch.nonzero(img_batch, as_tuple=False).unsqueeze(0)
-            left, _ = torch.min(image_info[:, :, 3], dim=1)
-            right, _ = torch.max(image_info[:, :, 3], dim=1)
-            top, _ = torch.min(image_info[:, :, 2], dim=1)
-            bottom, _ = torch.max(image_info[:, :, 2], dim=1)
-            ratio = 1.6
+        left, right, top, bottom = self.get_bbox_annot(image_info)
         center = torch.stack([right - (right - left) / 2.0, bottom - (bottom - top) / 2.0], dim=-1)
 
         old_size = (right - left + bottom - top) / 2
-        size = (old_size * ratio).type(torch.int32)
+        size = (old_size * 1.5).type(torch.int32)
+
         # crop image
-        left_top = torch.stack((center[:, 0]-(size / 2), center[:, 1]-(size / 2)), dim=-1)
-        right_top = torch.stack((center[:, 0]+(size / 2), center[:, 1]-(size / 2)), dim=-1)
-        left_bottom = torch.stack((center[:, 0]-(size / 2), center[:, 1]+(size / 2)), dim=-1)
-        right_bottom = torch.stack((center[:, 0]+(size / 2), center[:, 1]+(size / 2)), dim=-1)
+        left_top = torch.stack((center[:, 0] - (size / 2), center[:, 1] - (size / 2)), dim=-1)
+        right_top = torch.stack((center[:, 0] + (size / 2), center[:, 1] - (size / 2)), dim=-1)
+        left_bottom = torch.stack((center[:, 0] - (size / 2), center[:, 1] + (size / 2)), dim=-1)
+        right_bottom = torch.stack((center[:, 0] + (size / 2), center[:, 1] + (size / 2)), dim=-1)
         src_pts = torch.stack([left_top, right_top, left_bottom, right_bottom], dim=1)
         dst_pts = torch.tensor([[0, 0],
                                 [self.resolution - 1, 0],
@@ -227,28 +328,17 @@ class PRN:
                                 [self.resolution - 1, self.resolution - 1]],
                                dtype=torch.float32, device=self.device).repeat(src_pts.shape[0], 1, 1)
 
-        tform = kornia.geometry.find_homography_dlt(src_pts, dst_pts)
+        tform = kornia.get_perspective_transform(src_pts, dst_pts)
         cropped_image = kornia.geometry.warp_perspective(img_batch, tform, dsize=(self.resolution, self.resolution))
 
-        # transforms.ToPILImage()(img_batch[0].detach().cpu()).show()
-        # transforms.ToPILImage()(cropped_image[0].detach().cpu()).show()
-        left_top = torch.stack((center[:, 0] - (size / 3), center[:, 1] - (size / 4)), dim=-1)
-        right_top = torch.stack((center[:, 0] + (size / 3), center[:, 1] - (size / 4)), dim=-1)
-        left_bottom = torch.stack((center[:, 0] - (size / 3), center[:, 1] + (size / 4)), dim=-1)
-        right_bottom = torch.stack((center[:, 0] + (size / 3), center[:, 1] + (size / 4)), dim=-1)
-        src_pts = torch.stack([left_top, right_top, left_bottom, right_bottom], dim=1)
-        return cropped_image, tform, src_pts
+        return cropped_image, tform
 
     def process(self, img_batch, image_info):
-        cropped_image, tform, src_pts = self.preprocess(img_batch, image_info, self.resolution)
+        cropped_image, tform = self.preprocess(img_batch, image_info, self.resolution)
 
-        # transforms.ToPILImage()(cropped_image[0].detach().cpu()).show()
         cropped_pos = self.net(cropped_image)
-        # transforms.ToPILImage()(cropped_pos[0].detach().cpu()).show()
-        # restore
         cropped_vertices = (cropped_pos * self.MaxPos).view(cropped_pos.shape[0], 3, -1)
-        # transforms.ToPILImage()(cropped_pos[0].detach().cpu()).show()
-        # cropped_vertices = (cropped_pos).view(cropped_pos.shape[0], 3, -1)
+
         z = cropped_vertices[:, 2:3, :].clone() / tform[:, :1, :1]
         cropped_vertices[:, 2, :] = 1
 
@@ -256,8 +346,7 @@ class PRN:
         vertices = torch.cat((vertices[:, :2, :], z), dim=1)
 
         pos = vertices.reshape(vertices.shape[0], 3, self.resolution, self.resolution)
-        # transforms.ToPILImage()(pos[0]).show()
-        return pos, src_pts
+        return pos
 
     def get_vertices(self, pos):
         all_vertices = pos.view(pos.shape[0], 3, -1)
@@ -275,7 +364,7 @@ class NormalizeToArcFace(nn.Module):
         super().__init__()
         self.five_point_lm_indices = [41, 47, 34, 49, 55]
         self.arcface_src = torch.tensor([[[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366],
-                                         [41.5493, 92.3655], [70.7299, 92.2041]]]).to(device)
+                                          [41.5493, 92.3655], [70.7299, 92.2041]]]).to(device)
 
     def forward(self, img_batch, landmarks):
         transforms.ToPILImage()(img_batch[0].detach().cpu()).show()
@@ -319,9 +408,9 @@ class PatchTransformer(nn.Module):
         # target_size_x = torch.sqrt(((scaled_width) ** 2) + ((scaled_height) ** 2))
 
         scale_x = self.patch_size_width / scaled_width
-        scale_x = scale_x.view(batch_size[0]*batch_size[1])
+        scale_x = scale_x.view(batch_size[0] * batch_size[1])
         scale_y = self.patch_size_height / scaled_height
-        scale_y = scale_y.view(batch_size[0]*batch_size[1])
+        scale_y = scale_y.view(batch_size[0] * batch_size[1])
 
         theta = torch.zeros((anglesize, 2, 3), device=self.device)
         theta[:, 0, 0] = scale_x
@@ -434,22 +523,22 @@ class Projector(nn.Module):
         tmp = torch.nn.functional.pad(tmp, (0, 0, 1, 0))
         left_cumsum = torch.transpose(tmp, 1, 2)
 
-        tmp = np.arange(width_center, self.patch_size_width+1, dtype=np.float32)
+        tmp = np.arange(width_center, self.patch_size_width + 1, dtype=np.float32)
         tmp = torch.from_numpy(tmp)
         tmp = tmp.unsqueeze(0)
         tmp = tf_pre_parabol(tmp, self.parabola_rate, width_center)
-        tmp = torch.clamp(tmp-width_center, min=0, max=width_center)
+        tmp = torch.clamp(tmp - width_center, min=0, max=width_center)
         tmp = torch.round(tmp)
         tmp = tmp.type(torch.int32)
         anchors = tmp.unsqueeze(-1)
 
         tmp = self.parabola_rate.shape[0]
-        tmp = torch.range(start=0, end=tmp-1)
+        tmp = torch.range(start=0, end=tmp - 1)
         tmp = tmp.unsqueeze(-1).unsqueeze(-1)
-        anch_inds = torch.tile(tmp, [1, width_center+1, 1])
+        anch_inds = torch.tile(tmp, [1, width_center + 1, 1])
         new_anchors = torch.cat([anch_inds, anchors], dim=2)
 
-        tmp = torch.clamp(anchors[:, 1:]-anchors[:, :-1], min=1, max=self.patch_size_width)
+        tmp = torch.clamp(anchors[:, 1:] - anchors[:, :-1], min=1, max=self.patch_size_width)
         tmp = tmp.type(torch.float32)
         anchors_div = tmp.unsqueeze(-1)
 
@@ -541,12 +630,14 @@ class ap(nn.Module):
 
 
 def read_landmark_106_array(face_lms):
-    map = [[1,2],[3,4],[5,6],7,9,11,[12,13],14,16,18,[19,20],21,23,25,[26,27],[28,29],[30,31],33,34,35,36,37,42,43,44,45,46,51,52,53,54,58,59,60,61,62,66,67,69,70,71,73,75,76,78,79,80,82,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103]
-    pts1 = np.array(face_lms, dtype = np.float)
+    map = [[1, 2], [3, 4], [5, 6], 7, 9, 11, [12, 13], 14, 16, 18, [19, 20], 21, 23, 25, [26, 27], [28, 29], [30, 31],
+           33, 34, 35, 36, 37, 42, 43, 44, 45, 46, 51, 52, 53, 54, 58, 59, 60, 61, 62, 66, 67, 69, 70, 71, 73, 75, 76,
+           78, 79, 80, 82, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103]
+    pts1 = np.array(face_lms, dtype=np.float)
     pts1 = pts1.reshape((106, 2))
-    pts = np.zeros((68,2)) # map 106 to 68
+    pts = np.zeros((68, 2))  # map 106 to 68
     for ii in range(len(map)):
-        if isinstance(map[ii],list):
+        if isinstance(map[ii], list):
             pts[ii] = np.mean(pts1[map[ii]], axis=0)
         else:
             pts[ii] = pts1[map[ii]]
@@ -563,4 +654,3 @@ class TotalVariation(nn.Module):
     def forward(self, adv_patch):
         loss = total_variation(adv_patch * self.uv_mask_src) / self.number_of_pixels
         return loss
-

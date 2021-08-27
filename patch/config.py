@@ -69,7 +69,7 @@ class BaseConfiguration:
         # Dataset options
         self.dataset_name = 'CASIA-WebFace_aligned'  # CASIA-WebFace_aligned_100, CASIA-WebFace_aligned_1000, CelebA_aligned, CASIA_aligned_clean1_center
         self.img_dir = os.path.join('..', 'datasets', self.dataset_name)
-        self.number_of_people = 3
+        self.number_of_people = 5
         self.celeb_lab = os.listdir(self.img_dir)[:self.number_of_people]  # 2820, 3699, 9040, 9915, os.listdir(self.img_dir)
         self.celeb_lab_mapper = {i: lab for i, lab in enumerate(self.celeb_lab)}
         self.is_real_person = False
@@ -80,15 +80,15 @@ class BaseConfiguration:
         self.test_split = 0.8
         self.shuffle = True
         self.img_size = (112, 112)
-        self.train_batch_size = 1
-        self.test_batch_size = 1
+        self.train_batch_size = 4
+        self.test_batch_size = 32
         self.magnification_ratio = 30
 
         # Attack options
-        self.mask_aug = False
+        self.mask_aug = True
         self.patch_size = (256, 256)  # height, width
         self.initial_patch = 'white'  # body, white, random, stripes, l_stripes
-        self.epochs = 10
+        self.epochs = 0
         self.start_learning_rate = 1e-2
         self.es_patience = 7
         self.sc_patience = 2

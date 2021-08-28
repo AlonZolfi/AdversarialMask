@@ -68,20 +68,15 @@ class FaceXZooProjector(nn.Module):
         self.noise_factor = 0.05
 
     def forward(self, img_batch, landmarks, adv_patch, uv_mask_src=None, do_aug=False, is_3d=False):
-        # transforms.ToPILImage()(img_batch[0].detach().cpu()).show()
         pos_orig, vertices_orig = self.get_vertices(img_batch, landmarks)
         texture_img = kornia.geometry.remap(img_batch, map_x=pos_orig[:, 0], map_y=pos_orig[:, 1],
                                             mode='nearest') * self.uv_face_src
-        # transforms.ToPILImage()(texture_img[0].detach().cpu()).show()
 
         adv_patch = adv_patch.expand(img_batch.shape[0], -1, -1, -1)
         if not is_3d:
             adv_patch_other = self.align_patch(adv_patch, landmarks)
-            # adv_patch_other = F.interpolate(adv_patch, (112, 112))
-            transforms.ToPILImage()(torch.where(adv_patch_other != 0, adv_patch_other, img_batch)[0].detach().cpu()).show()
             texture_patch = kornia.geometry.remap(adv_patch_other, map_x=pos_orig[:, 0], map_y=pos_orig[:, 1],
                                                   mode='nearest') * self.uv_face_src
-            # transforms.ToPILImage()(texture_patch[0].detach().cpu()).show()
             uv_mask_src = torch.where(texture_patch.sum(dim=1, keepdim=True) != 0, torch.ones(1, device=self.device),
                                       torch.zeros(1, device=self.device))
         else:
@@ -189,28 +184,28 @@ class FaceXZooProjector(nn.Module):
         #                        landmarks[:, 14],
         #                        ], dim=1) / 112
 
-        # grid = create_meshgrid(112, 112, False, device=self.device).repeat(batch_size, 1, 1, 1)
-        #
-        # for i in range(batch_size):
-        #     bbox_info = self.get_bbox(cropped_image[i:i+1])
-        #     left_top = bbox_info[:, 0]
-        #     right_top = bbox_info[:, 1]
-        #     max_y_left = torch.clamp_min(-(landmarks[i, 0, 1] - left_top[:, 1]), 0)
-        #     max_y_right = torch.clamp_min(-(landmarks[i, 16, 1] - right_top[:, 1]), 0)
-        #     start_idx_left = min(int(left_top[0, 0].item()), resolution)
-        #     end_idx_left = min(int(start_idx_left + max_y_left.item()), resolution)
-        #     offset = torch.zeros_like(grid[i, :, start_idx_left:end_idx_left, 1])
-        #     for j in range(offset.shape[1]):
-        #         offset[:, j] = max_y_left - j
-        #     new_values = grid[i, :, start_idx_left:end_idx_left, 1] + offset
-        #     grid[i, :, start_idx_left:end_idx_left, 1] = new_values
-        #
-        #     end_idx_right = min(int(right_top[0, 0].item()), resolution) + 1
-        #     start_idx_right = min(int(end_idx_right - max_y_right.item()), resolution)
-        #     offset = torch.zeros_like(grid[i, :, start_idx_right:end_idx_right, 1])
-        #     for idx, col in enumerate(reversed(range(offset.shape[1]))):
-        #         offset[:, col] = max_y_right - idx
-        #     grid[i, :, start_idx_right:end_idx_right, 1] = grid[i, :, start_idx_right:end_idx_right, 1] + offset
+        grid = create_meshgrid(112, 112, False, device=self.device).repeat(batch_size, 1, 1, 1)
+
+        for i in range(batch_size):
+            bbox_info = self.get_bbox(cropped_image[i:i+1])
+            left_top = bbox_info[:, 0]
+            right_top = bbox_info[:, 1]
+            x_center = (right_top[:, 0] - left_top[:, 0])/2
+            max_y_left = torch.clamp_min(-(landmarks[i, 0, 1] - left_top[:, 1]), 0)
+            start_idx_left = min(int(left_top[0, 0].item()), resolution)
+            end_idx_left = min(int(start_idx_left + x_center), resolution)
+            offset = torch.zeros_like(grid[i, :, start_idx_left:end_idx_left, 1])
+            for j in range(offset.shape[1]):
+                offset[:, j] = max_y_left - ((j*max_y_left)/offset.shape[1])
+            grid[i, :, start_idx_left:end_idx_left, 1] = grid[i, :, start_idx_left:end_idx_left, 1] + offset
+
+            max_y_right = torch.clamp_min(-(landmarks[i, 16, 1] - right_top[:, 1]), 0)
+            end_idx_right = min(int(right_top[0, 0].item()), resolution) + 1
+            start_idx_right = min(int(end_idx_right - x_center), resolution)
+            offset = torch.zeros_like(grid[i, :, start_idx_right:end_idx_right, 1])
+            for idx, col in enumerate(reversed(range(offset.shape[1]))):
+                offset[:, col] = max_y_right - ((idx*max_y_right)/offset.shape[1])
+            grid[i, :, start_idx_right:end_idx_right, 1] = grid[i, :, start_idx_right:end_idx_right, 1] + offset
         #
         # # landmarks = landmarks.type(torch.float32)
         # # dst_pts = torch.stack([landmarks[:, 1],
@@ -221,8 +216,8 @@ class FaceXZooProjector(nn.Module):
         # #                        ], dim=1) / 112
         # # kernel_weights, affine_weights = kornia.geometry.get_tps_transform(dst_pts, src_pts)
         # # cropped_image = kornia.warp_image_tps(cropped_image, src_pts, kernel_weights, affine_weights)
-        # cropped_image = kornia.remap(cropped_image, map_x=grid[..., 0], map_y=grid[..., 1], mode='nearest')
-        # transforms.ToPILImage()(cropped_image[0]).show()
+        cropped_image = kornia.remap(cropped_image, map_x=grid[..., 0], map_y=grid[..., 1], mode='nearest')
+        transforms.ToPILImage()(cropped_image[0]).show()
         return cropped_image
 
     def get_bbox(self, adv_patch):

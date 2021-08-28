@@ -87,8 +87,8 @@ class BaseConfiguration:
         # Attack options
         self.mask_aug = True
         self.patch_size = (256, 256)  # height, width
-        self.initial_patch = 'white'  # body, white, random, stripes, l_stripes
-        self.epochs = 0
+        self.initial_patch = 'l_stripes'  # body, white, random, stripes, l_stripes
+        self.epochs = 5
         self.start_learning_rate = 1e-2
         self.es_patience = 7
         self.sc_patience = 2

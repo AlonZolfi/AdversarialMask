@@ -114,8 +114,8 @@ class FaceXZooProjector(nn.Module):
         new_image = img_batch * (1 - face_mask) + (new_image * face_mask)
         new_image.data.clamp_(0, 1)
 
-        # for i in range(new_image.shape[0]):
-        #     transforms.ToPILImage()(new_image[i]).show()
+        for i in range(new_image.shape[0]):
+            transforms.ToPILImage()(new_image[i]).show()
         return new_image
 
     def align_patch_old(self, adv_patch, landmarks):
@@ -201,24 +201,24 @@ class FaceXZooProjector(nn.Module):
             left_top = bbox_info[:, 0]
             right_top = bbox_info[:, 1]
             x_center = (right_top[:, 0] - left_top[:, 0])/2
-            max_y_left = torch.clamp_min(-(landmarks[i, 0, 1] - left_top[:, 1]), 0)
+            target_y = torch.mean(torch.stack([landmarks[i, 0, 1], landmarks[i, 0, 1]]))
+            max_y_left = torch.clamp_min(-(target_y - left_top[:, 1]), 0)
             start_idx_left = min(int(left_top[0, 0].item()), resolution)
             end_idx_left = min(int(start_idx_left + x_center), resolution)
             offset = torch.zeros_like(grid[i, :, start_idx_left:end_idx_left, 1])
             dropoff = 0.95
             for j in range(offset.shape[1]):
-                cur_dropoff = dropoff**j
-                offset[:, j] = (max_y_left - ((j*max_y_left)/offset.shape[1])) * cur_dropoff
+                offset[:, j] = (max_y_left - ((j*max_y_left)/offset.shape[1])) * dropoff**j
 
             grid[i, :, start_idx_left:end_idx_left, 1] = grid[i, :, start_idx_left:end_idx_left, 1] + offset
 
-            max_y_right = torch.clamp_min(-(landmarks[i, 16, 1] - right_top[:, 1]), 0)
+            target_y = torch.mean(torch.stack([landmarks[i, 16, 1], landmarks[i, 16, 1]]))
+            max_y_right = torch.clamp_min(-(target_y - right_top[:, 1]), 0)
             end_idx_right = min(int(right_top[0, 0].item()), resolution) + 1
             start_idx_right = min(int(end_idx_right - x_center), resolution)
             offset = torch.zeros_like(grid[i, :, start_idx_right:end_idx_right, 1])
             for idx, col in enumerate(reversed(range(offset.shape[1]))):
-                cur_dropoff = dropoff**idx
-                offset[:, col] = (max_y_right - ((idx*max_y_right)/offset.shape[1])) * cur_dropoff
+                offset[:, col] = (max_y_right - ((idx*max_y_right)/offset.shape[1])) * dropoff**idx
             grid[i, :, start_idx_right:end_idx_right, 1] = grid[i, :, start_idx_right:end_idx_right, 1] + offset
         #
         # # landmarks = landmarks.type(torch.float32)
@@ -231,7 +231,7 @@ class FaceXZooProjector(nn.Module):
         # # kernel_weights, affine_weights = kornia.geometry.get_tps_transform(dst_pts, src_pts)
         # # cropped_image = kornia.warp_image_tps(cropped_image, src_pts, kernel_weights, affine_weights)
         cropped_image = kornia.remap(cropped_image, map_x=grid[..., 0], map_y=grid[..., 1], mode='nearest')
-        # transforms.ToPILImage()(cropped_image[0]).show()
+        transforms.ToPILImage()(cropped_image[0]).show()
         return cropped_image
 
     def get_bbox(self, adv_patch):

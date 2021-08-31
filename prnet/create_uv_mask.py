@@ -15,8 +15,8 @@ bbox = (198, 97, 228, 159)
 draw.ellipse(bbox, fill='black')
 from torchvision import transforms
 img_t = transforms.ToTensor()(im)
-img_t[0, :, :50] = 0
-img_t[0, :, -50:] = 0
+img_t[0, :, :25] = 0
+img_t[0, :, -25:] = 0
 
 # for i in range(256):
     # print(i, img_t[0, i, :].sum())
@@ -27,8 +27,8 @@ img_t1 = img_t.clone()
 # img_t1[0, 60:90]= img_t[0, 40:70]
 # img_t1[0, 40:61] = 0
 import torch
-# im = transforms.ToPILImage()(img_t1).save('../prnet/new_uv.png')
+im = transforms.ToPILImage()(img_t1).save('../prnet/new_uv.png')
 
 # im.save("output.png")
-transforms.ToPILImage()(img_t1).show()
+# transforms.ToPILImage()(img_t1).show()
 

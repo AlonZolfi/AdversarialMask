@@ -66,29 +66,46 @@ class BaseConfiguration:
         self.seed = 42
         self.patch_name = 'base'
 
-        # Dataset options
-        self.dataset_name = 'CASIA-WebFace_aligned'  # CASIA-WebFace_aligned_100, CASIA-WebFace_aligned_1000, CelebA_aligned, CASIA_aligned_clean1_center
-        self.img_dir = os.path.join('..', 'datasets', self.dataset_name)
-        self.number_of_people = 5
-        self.celeb_lab = os.listdir(self.img_dir)[:self.number_of_people]  # 2820, 3699, 9040, 9915, os.listdir(self.img_dir)
-        self.celeb_lab_mapper = {i: lab for i, lab in enumerate(self.celeb_lab)}
+        # Train dataset options
         self.is_real_person = False
-        self.train_img_dir = os.path.join('..', 'datasets', self.dataset_name, 'train')
-        self.test_img_dir = os.path.join('..', 'datasets', self.dataset_name, 'test')
+        self.train_dataset_name = 'CASIA-WebFace_aligned'  # CASIA-WebFace_aligned_100, CASIA-WebFace_aligned_1000, CelebA_aligned, CASIA_aligned_clean1_center
+        self.train_img_dir = os.path.join('..', 'datasets', self.train_dataset_name)
+        self.train_number_of_people = 5
+        self.celeb_lab = os.listdir(self.train_img_dir)[:self.train_number_of_people]  # 2820, 3699, 9040, 9915, os.listdir(self.img_dir)
+        self.celeb_lab_mapper = {i: lab for i, lab in enumerate(self.celeb_lab)}
         self.num_of_train_images = 5
-        self.val_split = 0
-        self.test_split = 0.8
+
+        # Test dataset options
+        self.test_dataset_names = ['CASIA-WebFace_aligned', 'CelebA_aligned']
+        self.test_img_dir = {name: os.path.join('..', 'datasets', name) for name in self.test_dataset_names}
+        self.test_number_of_people = 10
+        self.test_celeb_lab = {}
+        for dataset_name, img_dir in self.test_img_dir.items():
+            label_list = os.listdir(img_dir)[:self.test_number_of_people]
+            if dataset_name == self.train_dataset_name:
+                label_list = os.listdir(img_dir)[-self.test_number_of_people:]
+            self.test_celeb_lab[dataset_name] = label_list
+        self.test_celeb_lab_mapper = {dataset_name: {i: lab for i, lab in enumerate(self.test_celeb_lab[dataset_name])} for dataset_name in self.test_dataset_names}
+        # self.number_of_test_people = 0
+        # self.celeb_lab_test = os.listdir(self.img_dir)[self.number_of_train_people+1:self.number_of_test_people]
+        # self.celeb_lab_mapper_test = {i: lab for i, lab in enumerate(self.celeb_lab_test)}
+
+        # self.train_img_dir = os.path.join('..', 'datasets', self.dataset_name, 'train')
+        # self.test_img_dir = os.path.join('..', 'datasets', self.dataset_name, 'test')
+
+        # self.val_split = 0
+        # self.test_split = 0.8
         self.shuffle = True
         self.img_size = (112, 112)
         self.train_batch_size = 4
         self.test_batch_size = 32
-        self.magnification_ratio = 30
+        self.magnification_ratio = 35
 
         # Attack options
         self.mask_aug = True
         self.patch_size = (256, 256)  # height, width
-        self.initial_patch = 'l_stripes'  # body, white, random, stripes, l_stripes
-        self.epochs = 5
+        self.initial_patch = 'white'  # body, white, random, stripes, l_stripes
+        self.epochs = 1
         self.start_learning_rate = 1e-2
         self.es_patience = 7
         self.sc_patience = 2
@@ -102,7 +119,7 @@ class BaseConfiguration:
         self.landmark_detector_type = 'mobilefacenet'  # face_alignment, mobilefacenet
 
         # Embedder options
-        self.train_embedder_names = ['resnet100_arcface', 'resnet100_magface']
+        self.train_embedder_names = ['resnet100_arcface']
         self.test_embedder_names = ['resnet100_arcface', 'resnet50_arcface', 'resnet34_arcface', 'resnet18_arcface',
                                     'resnet100_cosface', 'resnet50_cosface', 'resnet34_cosface', 'resnet18_cosface',
                                     'resnet100_magface']
@@ -111,7 +128,7 @@ class BaseConfiguration:
         # Loss options
         self.dist_loss_type = 'cossim'  # cossim, L2, L1
         self.dist_weight = 1
-        self.tv_weight = 0.01
+        self.tv_weight = 0.05
 
         # Test options
         self.masks_path = os.path.join('..', 'data', 'masks')

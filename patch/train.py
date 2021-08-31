@@ -43,7 +43,6 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print('device is {}'.format(device), flush=True)
 
 
-
 def set_random_seed(seed_value):
     np.random.seed(seed_value)
     torch.manual_seed(seed_value)
@@ -61,10 +60,7 @@ class AdversarialMask:
         self.config = config
         set_random_seed(seed_value=self.config.seed)
 
-        if self.config.is_real_person:
-            self.train_no_aug_loader, self.train_loader, self.val_loader, self.test_loader = utils.get_loaders_real_images(self.config)
-        else:
-            self.train_no_aug_loader, self.train_loader, self.val_loader, self.test_loader = utils.get_loaders(self.config)
+        self.train_no_aug_loader, self.train_loader = utils.get_train_loaders(self.config)
 
         self.embedders = load_embedder(self.config.train_embedder_names, device)
 
@@ -84,9 +80,8 @@ class AdversarialMask:
 
         self.create_folders()
         utils.save_class_to_file(self.config, self.config.current_dir)
-        self.target_embedding = utils.get_person_embedding(self.config, self.train_no_aug_loader, self.location_extractor,
-                                                           self.fxz_projector, self.embedders,
-                                                           self.config.train_embedder_names, device)
+        self.target_embedding = utils.get_person_embedding(self.config, self.train_no_aug_loader, self.config.celeb_lab_mapper, self.location_extractor,
+                                                           self.fxz_projector, self.embedders, device)
         self.best_patch = None
 
     def create_folders(self):
@@ -149,7 +144,6 @@ class AdversarialMask:
                 break
 
             scheduler.step(self.train_losses_epoch[-1])
-
         self.best_patch = early_stop.best_patch
         self.save_final_objects()
         self.plot_train_val_loss(self.train_losses_epoch, 'Epoch')
@@ -200,7 +194,7 @@ class AdversarialMask:
         uv_face = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L'))
         patch = patch * uv_face
         patch.requires_grad_(True)
-        # transforms.ToPILImage()(patch.squeeze(0) * uv_face).save('random.png')
+        # transforms.ToPILImage()(patch.squeeze(0) * uv_face).save('../data/masks/random.png')
         # transforms.ToPILImage()(patch.squeeze(0) * uv_face).show()
         return patch
 

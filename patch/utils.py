@@ -135,7 +135,8 @@ class CustomDataset1(Dataset):
     def get_image_names(self, indices):
         files_in_folder = get_nested_dataset_files(self.img_dir, self.celeb_lab_mapper.keys())
         files_in_folder = [item for sublist in files_in_folder for item in sublist]
-        files_in_folder = [files_in_folder[i] for i in indices]
+        if indices is not None:
+            files_in_folder = [files_in_folder[i] for i in indices]
         png_images = fnmatch.filter(files_in_folder, '*.png')
         jpg_images = fnmatch.filter(files_in_folder, '*.jpg')
         return png_images + jpg_images
@@ -285,32 +286,32 @@ def get_nested_dataset_files(img_dir, person_labs):
 
 
 def get_split_indices(config):
-    dataset_nested_files = get_nested_dataset_files(config.img_dir, config.celeb_lab)
+    dataset_nested_files = get_nested_dataset_files(config.train_img_dir, config.celeb_lab)
 
-    if config.num_of_train_images > 0:
-        nested_indices = [np.array(range(len(arr))) for i, arr in enumerate(dataset_nested_files)]
-        nested_indices_continuous = [nested_indices[0]]
-        for i, arr in enumerate(nested_indices[1:]):
-            nested_indices_continuous.append(arr + nested_indices_continuous[i][-1] + 1)
-        train_indices = np.array([np.random.choice(arr_idx, size=config.num_of_train_images, replace=False) for arr_idx in
-                                  nested_indices_continuous]).ravel()
-        val_indices = []
-        test_indices = np.array(list(set(list(range(nested_indices_continuous[-1][-1]))) - set(train_indices)))
-        if config.shuffle:
-            np.random.shuffle(train_indices)
-            np.random.shuffle(test_indices)
-    else:
-        dataset_size = len([item for sublist in dataset_nested_files for item in sublist])
-        indices = list(range(dataset_size))
-        if config.shuffle:
-            np.random.shuffle(indices)
-        val_split = int(np.floor(config.val_split * dataset_size))
-        test_split = int(np.floor(config.test_split * dataset_size))
-        train_indices = indices[val_split + test_split:]
-        val_indices = indices[:val_split]
-        test_indices = indices[val_split:val_split + test_split]
+    # if config.num_of_train_images > 0:
+    nested_indices = [np.array(range(len(arr))) for i, arr in enumerate(dataset_nested_files)]
+    nested_indices_continuous = [nested_indices[0]]
+    for i, arr in enumerate(nested_indices[1:]):
+        nested_indices_continuous.append(arr + nested_indices_continuous[i][-1] + 1)
+    train_indices = np.array([np.random.choice(arr_idx, size=config.num_of_train_images, replace=False) for arr_idx in
+                              nested_indices_continuous]).ravel()
+    # val_indices = []
+    # test_indices = np.array(list(set(list(range(nested_indices_continuous[-1][-1]))) - set(train_indices)))
+    if config.shuffle:
+        np.random.shuffle(train_indices)
+        # np.random.shuffle(test_indices)
+    # else:
+    #     dataset_size = len([item for sublist in dataset_nested_files for item in sublist])
+    #     indices = list(range(dataset_size))
+    #     if config.shuffle:
+    #         np.random.shuffle(indices)
+    #     val_split = int(np.floor(config.val_split * dataset_size))
+    #     test_split = int(np.floor(config.test_split * dataset_size))
+    #     train_indices = indices[val_split + test_split:]
+    #     val_indices = indices[:val_split]
+    #     test_indices = indices[val_split:val_split + test_split]
 
-    return train_indices, val_indices, test_indices
+    return train_indices
 
 
 def get_split_indices_real_images(config):
@@ -327,16 +328,16 @@ def get_split_indices_real_images(config):
     return val_indices, test_indices
 
 
-def get_loaders(config):
-    train_indices, val_indices, test_indices = get_split_indices(config)
-    train_dataset_no_aug = CustomDataset1(img_dir=config.img_dir,
+def get_train_loaders(config):
+    train_indices = get_split_indices(config)
+    train_dataset_no_aug = CustomDataset1(img_dir=config.train_img_dir,
                                           celeb_lab_mapper=config.celeb_lab_mapper,
                                           img_size=config.img_size,
                                           indices=train_indices,
                                           transform=transforms.Compose(
                                               [transforms.Resize(config.img_size),
                                                transforms.ToTensor()]))
-    train_dataset = CustomDataset1(img_dir=config.img_dir,
+    train_dataset = CustomDataset1(img_dir=config.train_img_dir,
                                    celeb_lab_mapper=config.celeb_lab_mapper,
                                    img_size=config.img_size,
                                    indices=train_indices,
@@ -345,24 +346,47 @@ def get_loaders(config):
                                         # transforms.RandomHorizontalFlip(),
                                         transforms.Resize(config.img_size),
                                         transforms.ToTensor()]))
-    val_dataset = CustomDataset1(img_dir=config.img_dir,
-                                 celeb_lab_mapper=config.celeb_lab_mapper,
-                                 img_size=config.img_size,
-                                 indices=val_indices,
-                                 transform=transforms.Compose(
-                                     [transforms.Resize(config.img_size), transforms.ToTensor()]))
-    test_dataset = CustomDataset1(img_dir=config.img_dir,
-                                  celeb_lab_mapper=config.celeb_lab_mapper,
-                                  img_size=config.img_size,
-                                  indices=test_indices,
-                                  transform=transforms.Compose(
-                                      [transforms.Resize(config.img_size), transforms.ToTensor()]))
+    # val_dataset = CustomDataset1(img_dir=config.img_dir,
+    #                              celeb_lab_mapper=config.celeb_lab_mapper,
+    #                              img_size=config.img_size,
+    #                              indices=val_indices,
+    #                              transform=transforms.Compose(
+    #                                  [transforms.Resize(config.img_size), transforms.ToTensor()]))
+    # test_dataset_known = CustomDataset1(img_dir=config.img_dir,
+    #                                     celeb_lab_mapper=config.celeb_lab_mapper,
+    #                                     img_size=config.img_size,
+    #                                     indices=test_indices,
+    #                                     transform=transforms.Compose(
+    #                                         [transforms.Resize(config.img_size), transforms.ToTensor()]))
+    # test_dataset_unknown = CustomDataset1(img_dir=config.img_dir,
+    #                                       celeb_lab_mapper=config.celeb_lab_mapper_test,
+    #                                       img_size=config.img_size,
+    #                                       indices=None,
+    #                                       transform=transforms.Compose(
+    #                                           [transforms.Resize(config.img_size), transforms.ToTensor()]))
     train_no_aug_loader = DataLoader(train_dataset_no_aug, batch_size=config.train_batch_size)
     train_loader = DataLoader(train_dataset, batch_size=config.train_batch_size)
-    validation_loader = DataLoader(val_dataset, batch_size=config.train_batch_size)
-    test_loader = DataLoader(test_dataset, batch_size=config.test_batch_size)
+    # validation_loader = DataLoader(val_dataset, batch_size=config.train_batch_size)
+    # test_loader_known = DataLoader(test_dataset_known, batch_size=config.test_batch_size)
+    # test_loader_unknown = DataLoader(test_dataset_unknown, batch_size=config.test_batch_size)
 
-    return train_no_aug_loader, train_loader, validation_loader, test_loader
+    return train_no_aug_loader, train_loader
+
+
+def get_test_loaders(config):
+    test_loaders = {}
+    for dataset_name in config.test_dataset_names:
+        dataset = CustomDataset1(img_dir=config.test_img_dir[dataset_name],
+                                 celeb_lab_mapper=config.test_celeb_lab_mapper[dataset_name],
+                                 img_size=config.img_size,
+                                 indices=None,
+                                 transform=transforms.Compose(
+                                     [transforms.Resize(config.img_size),
+                                      transforms.ToTensor()]))
+        loader = DataLoader(dataset, batch_size=config.test_batch_size)
+        test_loaders[dataset_name] = loader
+
+    return test_loaders
 
 
 def get_loaders_real_images(config):
@@ -407,11 +431,11 @@ def normalize_batch(adv_mask_class, img_batch):
 
 
 @torch.no_grad()
-def get_person_embedding(config, loader, location_extractor, fxz_projector, embedders, embedder_names, device, include_others=False):
+def get_person_embedding(config, loader, celeb_lab, location_extractor, fxz_projector, embedders, device, include_others=False):
     print('Calculating persons embeddings {}...'.format('with mask' if include_others else 'without mask'), flush=True)
     embeddings_by_embedder = {}
-    for embedder_name in embedder_names:
-        person_embeddings = {i: torch.empty(0, device=device) for i in range(len(config.celeb_lab))}
+    for embedder_name, embedder in embedders.items():
+        person_embeddings = {i: torch.empty(0, device=device) for i in range(len(celeb_lab))}
         masks_path = [config.blue_mask_path, config.black_mask_path, config.white_mask_path]
         for img_batch, _, person_indices in tqdm(loader):
             img_batch = img_batch.to(device)
@@ -421,7 +445,7 @@ def get_person_embedding(config, loader, location_extractor, fxz_projector, embe
                 applied_batch = apply_mask(location_extractor, fxz_projector, img_batch, mask_t[:, :3], mask_t[:, 3], is_3d=True)
                 img_batch = torch.cat([img_batch, applied_batch], dim=0)
                 person_indices = person_indices.repeat(2)
-            embedding = embedders[embedder_name](img_batch)
+            embedding = embedder(img_batch)
             for idx in person_indices.unique():
                 relevant_indices = torch.nonzero(person_indices == idx, as_tuple=True)
                 emb = embedding[relevant_indices]

@@ -63,7 +63,7 @@ def face_crop_raw_images(input_path, output_path):
                 cv2.imwrite(os.path.join(output_path, folder_name, image_path), cut)
 
 
-face_crop_raw_images('../datasets/CASIA-maxpy-clean', '../datasets/CASIA_aligned_clean')
+face_crop_raw_images('../datasets/real_person', '../datasets/real_person_cropped')
 
 
 def face_crop_raw_images_batched(input_path, output_path):

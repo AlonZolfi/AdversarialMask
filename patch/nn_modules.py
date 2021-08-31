@@ -68,23 +68,33 @@ class FaceXZooProjector(nn.Module):
         self.noise_factor = 0.05
 
     def forward(self, img_batch, landmarks, adv_patch, uv_mask_src=None, do_aug=False, is_3d=False):
+        # transforms.ToPILImage()(img_batch[0].detach().cpu()).show()
         pos_orig, vertices_orig = self.get_vertices(img_batch, landmarks)
         texture_img = kornia.geometry.remap(img_batch, map_x=pos_orig[:, 0], map_y=pos_orig[:, 1],
                                             mode='nearest') * self.uv_face_src
+        # transforms.ToPILImage()(texture_img[0].detach().cpu()).show()
 
         adv_patch = adv_patch.expand(img_batch.shape[0], -1, -1, -1)
+        # transforms.ToPILImage()(adv_patch[0].detach().cpu()).show()
         if not is_3d:
             adv_patch_other = self.align_patch(adv_patch, landmarks)
+            # transforms.ToPILImage()(torch.where(adv_patch_other[0] != 0, adv_patch_other[0], img_batch[0])).show()
+            # transforms.ToPILImage()(adv_patch_other[0].detach().cpu()).show()
             texture_patch = kornia.geometry.remap(adv_patch_other, map_x=pos_orig[:, 0], map_y=pos_orig[:, 1],
                                                   mode='nearest') * self.uv_face_src
+            # transforms.ToPILImage()(texture_patch[0].detach().cpu()).show()
             uv_mask_src = torch.where(texture_patch.sum(dim=1, keepdim=True) != 0, torch.ones(1, device=self.device),
                                       torch.zeros(1, device=self.device))
         else:
+            uv_mask_src = uv_mask_src.repeat(adv_patch.shape[0], 1, 1, 1)
+            if adv_patch.shape[2] != 256:
+                adv_patch = F.interpolate(adv_patch, (256, 256))
+                uv_mask_src = F.interpolate(uv_mask_src, (256, 256))
             texture_patch = adv_patch
-            uv_mask_src = uv_mask_src.repeat(adv_patch.shape[0], -1, -1, -1)
 
         if do_aug:
             texture_patch, uv_mask_src = self.augment_patch(texture_patch, uv_mask_src)
+            # transforms.ToPILImage()(texture_patch[0].detach().cpu()).show()
 
         new_texture = texture_patch * uv_mask_src + texture_img * (1 - uv_mask_src)
         # transforms.ToPILImage()(new_texture[0].detach().cpu()).show()
@@ -104,8 +114,8 @@ class FaceXZooProjector(nn.Module):
         new_image = img_batch * (1 - face_mask) + (new_image * face_mask)
         new_image.data.clamp_(0, 1)
 
-        for i in range(new_image.shape[0]):
-            transforms.ToPILImage()(new_image[i]).show()
+        # for i in range(new_image.shape[0]):
+        #     transforms.ToPILImage()(new_image[i]).show()
         return new_image
 
     def align_patch_old(self, adv_patch, landmarks):
@@ -195,8 +205,11 @@ class FaceXZooProjector(nn.Module):
             start_idx_left = min(int(left_top[0, 0].item()), resolution)
             end_idx_left = min(int(start_idx_left + x_center), resolution)
             offset = torch.zeros_like(grid[i, :, start_idx_left:end_idx_left, 1])
+            dropoff = 0.95
             for j in range(offset.shape[1]):
-                offset[:, j] = max_y_left - ((j*max_y_left)/offset.shape[1])
+                cur_dropoff = dropoff**j
+                offset[:, j] = (max_y_left - ((j*max_y_left)/offset.shape[1])) * cur_dropoff
+
             grid[i, :, start_idx_left:end_idx_left, 1] = grid[i, :, start_idx_left:end_idx_left, 1] + offset
 
             max_y_right = torch.clamp_min(-(landmarks[i, 16, 1] - right_top[:, 1]), 0)
@@ -204,7 +217,8 @@ class FaceXZooProjector(nn.Module):
             start_idx_right = min(int(end_idx_right - x_center), resolution)
             offset = torch.zeros_like(grid[i, :, start_idx_right:end_idx_right, 1])
             for idx, col in enumerate(reversed(range(offset.shape[1]))):
-                offset[:, col] = max_y_right - ((idx*max_y_right)/offset.shape[1])
+                cur_dropoff = dropoff**idx
+                offset[:, col] = (max_y_right - ((idx*max_y_right)/offset.shape[1])) * cur_dropoff
             grid[i, :, start_idx_right:end_idx_right, 1] = grid[i, :, start_idx_right:end_idx_right, 1] + offset
         #
         # # landmarks = landmarks.type(torch.float32)
@@ -217,7 +231,7 @@ class FaceXZooProjector(nn.Module):
         # # kernel_weights, affine_weights = kornia.geometry.get_tps_transform(dst_pts, src_pts)
         # # cropped_image = kornia.warp_image_tps(cropped_image, src_pts, kernel_weights, affine_weights)
         cropped_image = kornia.remap(cropped_image, map_x=grid[..., 0], map_y=grid[..., 1], mode='nearest')
-        transforms.ToPILImage()(cropped_image[0]).show()
+        # transforms.ToPILImage()(cropped_image[0]).show()
         return cropped_image
 
     def get_bbox(self, adv_patch):
@@ -645,7 +659,16 @@ class TotalVariation(nn.Module):
         self.device = device
         self.uv_mask_src = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L')).to(device).squeeze()
         self.number_of_pixels = torch.count_nonzero(self.uv_mask_src)
+        self.save_grads = torch.zeros_like(self.uv_mask_src)
 
     def forward(self, adv_patch):
-        loss = total_variation(adv_patch * self.uv_mask_src) / self.number_of_pixels
+        # transforms.ToPILImage()((adv_patch * self.uv_mask_src)[0]).show()
+        tv_patch = adv_patch * self.uv_mask_src
+        # transforms.ToPILImage()((tv_patch * self.uv_mask_src)[0]).show()
+        # tv_patch.register_hook(self.zero_grads)
+        loss = total_variation(tv_patch) / self.number_of_pixels
         return loss
+
+    def zero_grads(self, grads):
+        self.save_grads = torch.where(grads.sum(dim=1).sum(dim=0).unsqueeze(0).unsqueeze(0) != 0, torch.ones(1, device=self.device), self.save_grads)
+        # print(self.save_grads.sum())

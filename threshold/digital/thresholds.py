@@ -93,14 +93,14 @@ def calc_optimal_threshold(pairs_path, img_root_dir):
         sims = sims.append(pd.Series(sim.cpu().numpy()), ignore_index=True)
     pairs_df['similarity'] = sims.values
     pairs_df.to_csv('threshold/digital/pairs_with_sim.csv', index=False)'''
-    pairs_df = pd.read_csv('threshold/digital/pairs_with_sim.csv')
+    pairs_df = pd.read_csv('pairs_with_sim.csv')
     y_true = pairs_df.same.values.astype(int)
     preds = (pairs_df.similarity.values + 1) / 2
 
     fpr, tpr, thresholds = metrics.roc_curve(y_true, preds)
     auc_score = metrics.roc_auc_score(y_true, preds)
     plot_roc(tpr, fpr, auc_score)
-    threshold_idx = np.argmin(np.square(fpr - 0.05))
+    threshold_idx = np.argmin(np.square(fpr - 0.01))
     threshold = thresholds[threshold_idx]
     print('threshold: ', threshold)
     calc_final_results(pairs_df, threshold)
@@ -129,7 +129,7 @@ def plot_roc(tpr, fpr, roc_auc):
     plt.ylim([0, 1])
     plt.ylabel('True Positive Rate')
     plt.xlabel('False Positive Rate')
-    plt.savefig('threshold/digital/roc.png')
+    plt.savefig('roc.png')
 
 
 class PairsDataset(Dataset):

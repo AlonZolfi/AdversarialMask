@@ -221,7 +221,7 @@ class AdversarialMask:
         with torch.no_grad():
             for img_batch, img_names, cls_id in self.val_loader:
                 img_batch = img_batch.to(device)
-                (loss, _), _ = self.forward_step(img_batch, adv_patch_cpu, img_names, cls_id, train=False)
+                (loss, _), _ = self.forward_step(img_batch, adv_patch_cpu, img_names, cls_id)
                 val_loss += loss.item()
 
                 del img_batch, loss

@@ -54,6 +54,13 @@ class Evaluator:
             self.calc_similarity_statistics(similarities_target_without_mask, target_type='without', dataset_name=dataset_name)
             self.plot_sim_box(similarities_target_with_mask, target_type='with', dataset_name=dataset_name)
             self.plot_sim_box(similarities_target_without_mask, target_type='without', dataset_name=dataset_name)
+
+            similarities_target_with_mask_by_person = self.get_final_similarity_from_disk('with_mask', dataset_name=dataset_name,
+                                                                                          by_person=True)
+            similarities_target_without_mask_by_person = self.get_final_similarity_from_disk('without_mask', dataset_name=dataset_name,
+                                                                                             by_person=True)
+            self.plot_sim_box(similarities_target_with_mask_by_person, target_type='with', dataset_name=dataset_name, by_person=True)
+            self.plot_sim_box(similarities_target_without_mask_by_person, target_type='without', dataset_name=dataset_name, by_person=True)
         if len(self.config.celeb_lab) > 1:
             converters = {"y_true": lambda x: list(map(int, x.strip("[]").split(", "))),
                           "y_pred": lambda x: list(map(float, x.strip("[]").split(", ")))}
@@ -97,8 +104,8 @@ class Evaluator:
                 df_with_mask.to_csv(os.path.join(self.config.current_dir, 'saved_preds', dataset_name, 'preds_with_mask.csv'), index=False)
                 df_without_mask.to_csv(os.path.join(self.config.current_dir, 'saved_preds', dataset_name, 'preds_without_mask.csv'), index=False)
 
-    def plot_sim_box(self, similarities, target_type, dataset_name):
-        Path(os.path.join(self.config.current_dir, 'final_results', 'sim-boxes', dataset_name)).mkdir(parents=True, exist_ok=True)
+    def plot_sim_box(self, similarities, target_type, dataset_name, by_person=False):
+        Path(os.path.join(self.config.current_dir, 'final_results', 'sim-boxes', dataset_name, target_type)).mkdir(parents=True, exist_ok=True)
         for emb_name in self.config.test_embedder_names:
             sim_df = pd.DataFrame()
             for i in range(len(similarities[emb_name])):
@@ -112,7 +119,8 @@ class Evaluator:
             plt.ylabel('Similarity')
             # plt.gca().set_ylim([, 1.05])
             # plt.legend()
-            plt.savefig(os.path.join(self.config.current_dir, 'final_results', 'sim-boxes', dataset_name, target_type + '_' + emb_name + '.png'))
+            avg_type = 'person' if by_person else 'image'
+            plt.savefig(os.path.join(self.config.current_dir, 'final_results', 'sim-boxes', dataset_name, target_type, avg_type + '_' + emb_name + '.png'))
             plt.close()
 
     def write_similarities_to_disk(self, sims, img_names, cls_ids, sim_type, emb_name, dataset_name):
@@ -122,7 +130,7 @@ class Evaluator:
             for similarity, mask_name in zip(sims, self.mask_names):
                 sim = similarity[cls_ids.cpu().numpy() == i].tolist()
                 sim = {img_name: s for img_name, s in zip(img_names, sim)}
-                with open(os.path.join(self.config.current_dir, 'saved_similarities', dataset_name, emb_name, lab, mask_name + '.pickle'), 'ab') as f:
+                with open(os.path.join(self.config.current_dir, 'saved_similarities', dataset_name, emb_name, lab, sim_type + '_' + mask_name + '.pickle'), 'ab') as f:
                     pickle.dump(sim, f)
         for similarity, mask_name in zip(sims, self.mask_names):
             sim = {img_name: s for img_name, s in zip(img_names, similarity.tolist())}
@@ -179,18 +187,33 @@ class Evaluator:
                 sims.append(np.diag(cosine_similarity(emb, target_embedding)))
             self.write_similarities_to_disk(sims, img_names, cls_id, sim_type=target_type, emb_name=emb_name, dataset_name=dataset_name)
 
-    def get_final_similarity_from_disk(self, sim_type, dataset_name):
+    def get_final_similarity_from_disk(self, sim_type, dataset_name, by_person=False):
         sims = {}
         for emb_name in self.config.test_embedder_names:
             sims[emb_name] = []
             for i, mask_name in enumerate(self.mask_names):
-                with open(os.path.join(self.config.current_dir, 'saved_similarities', dataset_name, emb_name, sim_type + '_' + mask_name + '.pickle'), 'rb') as f:
+                if not by_person:
+                    with open(os.path.join(self.config.current_dir, 'saved_similarities', dataset_name, emb_name, sim_type + '_' + mask_name + '.pickle'), 'rb') as f:
+                        sims[emb_name].append([])
+                        while True:
+                            try:
+                                data = pickle.load(f).values()
+                                sims[emb_name][i].extend(list(data))
+                            except EOFError:
+                                break
+                else:
                     sims[emb_name].append([])
-                    while True:
-                        try:
-                            sims[emb_name][i].extend(list(pickle.load(f).values()))
-                        except EOFError:
-                            break
+                    for lab in self.config.test_celeb_lab[dataset_name]:
+                        with open(os.path.join(self.config.current_dir, 'saved_similarities', dataset_name, emb_name, lab, sim_type + '_' + mask_name + '.pickle'), 'rb') as f:
+                            person_sims = []
+                            while True:
+                                try:
+                                    data = pickle.load(f).values()
+                                    person_sims.extend(list(data))
+                                except EOFError:
+                                    break
+                            person_avg_sim = sum(person_sims) / len(person_sims)
+                            sims[emb_name][i].append(person_avg_sim)
         return sims
 
     def get_pr(self, df, dataset_name):

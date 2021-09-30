@@ -170,8 +170,8 @@ class FaceXZooProjector(nn.Module):
         src_pts = self.get_bbox(adv_patch).repeat(batch_size, 1, 1)
         landmarks = landmarks.type(torch.float32)
         max_side_dist = torch.maximum(landmarks[:, 8, 0]-landmarks[:, 2, 0], landmarks[:, 14, 0]-landmarks[:, 8, 0])
-        left_top = torch.stack((landmarks[:, 8, 0]-max_side_dist, (landmarks[:, 29, 1]+landmarks[:, 28, 1])/2), dim=-1)
-        right_top = torch.stack((landmarks[:, 8, 0]+max_side_dist, (landmarks[:, 29, 1]+landmarks[:, 28, 1])/2), dim=-1)
+        left_top = torch.stack((landmarks[:, 8, 0]-max_side_dist, (landmarks[:, 28, 1]+landmarks[:, 28, 1])/2), dim=-1)
+        right_top = torch.stack((landmarks[:, 8, 0]+max_side_dist, (landmarks[:, 28, 1]+landmarks[:, 28, 1])/2), dim=-1)
         left_bottom = torch.stack((landmarks[:, 8, 0]-max_side_dist, landmarks[:, 8, 1]), dim=-1)
         right_bottom = torch.stack((landmarks[:, 8, 0]+max_side_dist, landmarks[:, 8, 1]), dim=-1)
         dst_pts = torch.stack([left_top, right_top, left_bottom, right_bottom], dim=1)
@@ -206,7 +206,7 @@ class FaceXZooProjector(nn.Module):
             start_idx_left = min(int(left_top[0, 0].item()), resolution)
             end_idx_left = min(int(start_idx_left + x_center), resolution)
             offset = torch.zeros_like(grid[i, :, start_idx_left:end_idx_left, 1])
-            dropoff = 0.95
+            dropoff = 0.97
             for j in range(offset.shape[1]):
                 offset[:, j] = (max_y_left - ((j*max_y_left)/offset.shape[1])) * dropoff**j
 

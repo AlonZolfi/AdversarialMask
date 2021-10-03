@@ -68,17 +68,17 @@ class BaseConfiguration:
 
         # Train dataset options
         self.is_real_person = False
-        self.train_dataset_name = 'CASIA-WebFace_aligned'  # CASIA-WebFace_aligned_100, CASIA-WebFace_aligned_1000, CelebA_aligned, CASIA_aligned_clean1_center
+        self.train_dataset_name = 'CASIA'  # CASIA-WebFace_aligned_100, CASIA-WebFace_aligned_1000, CelebA_aligned, CASIA_aligned_clean1_center
         self.train_img_dir = os.path.join('..', 'datasets', self.train_dataset_name)
-        self.train_number_of_people = 3
+        self.train_number_of_people = 100
         self.celeb_lab = os.listdir(self.train_img_dir)[:self.train_number_of_people]  # 2820, 3699, 9040, 9915, os.listdir(self.img_dir)
         self.celeb_lab_mapper = {i: lab for i, lab in enumerate(self.celeb_lab)}
         self.num_of_train_images = 5
 
         # Test dataset options
-        self.test_dataset_names = ['CASIA-WebFace_aligned']
+        self.test_dataset_names = ['CASIA', 'CelebA', 'MS-Celeb']
         self.test_img_dir = {name: os.path.join('..', 'datasets', name) for name in self.test_dataset_names}
-        self.test_number_of_people = 3
+        self.test_number_of_people = 100
         self.test_celeb_lab = {}
         for dataset_name, img_dir in self.test_img_dir.items():
             label_list = os.listdir(img_dir)[:self.test_number_of_people]
@@ -103,9 +103,9 @@ class BaseConfiguration:
 
         # Attack options
         self.mask_aug = True
-        self.patch_size = (256, 256)  # height, width
+        self.patch_size = (128, 128)  # height, width
         self.initial_patch = 'white'  # body, white, random, stripes, l_stripes
-        self.epochs = 1
+        self.epochs = 100
         self.start_learning_rate = 1e-2
         self.es_patience = 7
         self.sc_patience = 2
@@ -119,7 +119,7 @@ class BaseConfiguration:
         self.landmark_detector_type = 'mobilefacenet'  # face_alignment, mobilefacenet
 
         # Embedder options
-        self.train_embedder_names = ['resnet100_arcface']
+        self.train_embedder_names = ['resnet50_arcface', 'resnet100_arcface']
         self.test_embedder_names = ['resnet100_arcface', 'resnet50_arcface', 'resnet34_arcface', 'resnet18_arcface',
                                     'resnet100_cosface', 'resnet50_cosface', 'resnet34_cosface', 'resnet18_cosface',
                                     'resnet100_magface']
@@ -128,7 +128,7 @@ class BaseConfiguration:
         # Loss options
         self.dist_loss_type = 'cossim'  # cossim, L2, L1
         self.dist_weight = 1
-        self.tv_weight = 0.05
+        self.tv_weight = 0.1
 
         # Test options
         self.masks_path = os.path.join('..', 'data', 'masks')

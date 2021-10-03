@@ -114,8 +114,8 @@ class FaceXZooProjector(nn.Module):
         new_image = img_batch * (1 - face_mask) + (new_image * face_mask)
         new_image.data.clamp_(0, 1)
 
-        for i in range(new_image.shape[0]):
-            transforms.ToPILImage()(new_image[i]).show()
+        # for i in range(new_image.shape[0]):
+        #     transforms.ToPILImage()(new_image[i]).show()
         return new_image
 
     def align_patch_old(self, adv_patch, landmarks):
@@ -162,7 +162,7 @@ class FaceXZooProjector(nn.Module):
         # resolution = 112
         # cropped_image = kornia.geometry.warp_perspective(adv_patch, tform, dsize=(resolution, resolution),
         #                                                mode='nearest')
-        transforms.ToPILImage()(cropped_image[0]).show()
+        # transforms.ToPILImage()(cropped_image[0]).show()
         return cropped_image
 
     def align_patch(self, adv_patch, landmarks):
@@ -231,7 +231,7 @@ class FaceXZooProjector(nn.Module):
         # # kernel_weights, affine_weights = kornia.geometry.get_tps_transform(dst_pts, src_pts)
         # # cropped_image = kornia.warp_image_tps(cropped_image, src_pts, kernel_weights, affine_weights)
         cropped_image = kornia.remap(cropped_image, map_x=grid[..., 0], map_y=grid[..., 1], mode='nearest')
-        transforms.ToPILImage()(cropped_image[0]).show()
+        # transforms.ToPILImage()(cropped_image[0]).show()
         return cropped_image
 
     def get_bbox(self, adv_patch):

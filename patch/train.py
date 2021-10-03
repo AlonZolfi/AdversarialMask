@@ -194,7 +194,7 @@ class AdversarialMask:
         uv_face = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L'))
         patch = patch * uv_face
         patch.requires_grad_(True)
-        # transforms.ToPILImage()(patch.squeeze(0) * uv_face).save('../data/masks/random.png')
+        # transforms.ToPILImage()(torch.rand((1, 3, self.config.patch_size[0], self.config.patch_size[1]), dtype=torch.float32).squeeze(0) * uv_face).save('../data/masks/random.png')
         # transforms.ToPILImage()(patch.squeeze(0) * uv_face).show()
         return patch
 

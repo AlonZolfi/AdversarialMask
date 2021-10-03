@@ -55,12 +55,13 @@ class Evaluator:
             self.plot_sim_box(similarities_target_with_mask, target_type='with', dataset_name=dataset_name)
             self.plot_sim_box(similarities_target_without_mask, target_type='without', dataset_name=dataset_name)
 
-            similarities_target_with_mask_by_person = self.get_final_similarity_from_disk('with_mask', dataset_name=dataset_name,
-                                                                                          by_person=True)
-            similarities_target_without_mask_by_person = self.get_final_similarity_from_disk('without_mask', dataset_name=dataset_name,
-                                                                                             by_person=True)
+            similarities_target_with_mask_by_person = self.get_final_similarity_from_disk('with_mask', dataset_name=dataset_name, by_person=True)
+            similarities_target_without_mask_by_person = self.get_final_similarity_from_disk('without_mask', dataset_name=dataset_name, by_person=True)
+            self.calc_similarity_statistics(similarities_target_with_mask_by_person, target_type='with', dataset_name=dataset_name, by_person=True)
+            self.calc_similarity_statistics(similarities_target_without_mask_by_person, target_type='without', dataset_name=dataset_name, by_person=True)
             self.plot_sim_box(similarities_target_with_mask_by_person, target_type='with', dataset_name=dataset_name, by_person=True)
             self.plot_sim_box(similarities_target_without_mask_by_person, target_type='without', dataset_name=dataset_name, by_person=True)
+
         if len(self.config.celeb_lab) > 1:
             converters = {"y_true": lambda x: list(map(int, x.strip("[]").split(", "))),
                           "y_pred": lambda x: list(map(float, x.strip("[]").split(", ")))}
@@ -76,7 +77,6 @@ class Evaluator:
 
     @torch.no_grad()
     def calc_overall_similarity(self):
-
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', UserWarning)
 
@@ -239,7 +239,7 @@ class Evaluator:
         return precisions, recalls, aps
 
     def plot_pr_curve(self, precisions, recalls, aps, target_type, dataset_name):
-        Path(os.path.join(self.config.current_dir, 'final_results', 'pr-curves', dataset_name)).mkdir(parents=True, exist_ok=True)
+        Path(os.path.join(self.config.current_dir, 'final_results', 'pr-curves', dataset_name, target_type)).mkdir(parents=True, exist_ok=True)
         for emb_name in self.config.test_embedder_names:
             plt.plot([0, 1.05], [0, 1.05], '--', color='gray')
             title = 'Precision-Recall Curve'
@@ -261,7 +261,7 @@ class Evaluator:
                                           reverse=True))
             plt.gca().legend(handles, labels, loc=4)
             plt.gca().set_aspect('equal', adjustable='box')
-            plt.savefig(os.path.join(self.config.current_dir, 'final_results', 'pr-curves', dataset_name, target_type + '_' + emb_name + '.png'))
+            plt.savefig(os.path.join(self.config.current_dir, 'final_results', 'pr-curves', dataset_name, target_type, emb_name + '.png'))
             plt.close()
 
     def calc_preds(self, cls_id, all_embeddings, target_type, dataset_name):
@@ -290,7 +290,7 @@ class Evaluator:
                 df = df.append(new_rows, ignore_index=True)
         return df
 
-    def calc_similarity_statistics(self, sim_dict, target_type, dataset_name):
+    def calc_similarity_statistics(self, sim_dict, target_type, dataset_name, by_person=False):
         df_mean = pd.DataFrame(columns=['emb_name'] + self.mask_names)
         df_std = pd.DataFrame(columns=['emb_name'] + self.mask_names)
         for emb_name, sim_values in sim_dict.items():
@@ -300,9 +300,10 @@ class Evaluator:
             df_mean = df_mean.append(pd.Series([emb_name] + sim_mean.tolist(), index=df_mean.columns), ignore_index=True)
             df_std = df_std.append(pd.Series([emb_name] + sim_std.tolist(), index=df_std.columns), ignore_index=True)
 
-        Path(os.path.join(self.config.current_dir, 'final_results', 'stats', 'similarity', dataset_name)).mkdir(parents=True, exist_ok=True)
-        df_mean.to_csv(os.path.join(self.config.current_dir, 'final_results', 'stats', 'similarity', dataset_name, 'mean_df' + '_' + target_type + '.csv'), index=False)
-        df_std.to_csv(os.path.join(self.config.current_dir, 'final_results', 'stats', 'similarity',  dataset_name, 'std_df' + '_' + target_type + '.csv'), index=False)
+        avg_type = 'person' if by_person else 'image'
+        Path(os.path.join(self.config.current_dir, 'final_results', 'stats', 'similarity', dataset_name, target_type)).mkdir(parents=True, exist_ok=True)
+        df_mean.to_csv(os.path.join(self.config.current_dir, 'final_results', 'stats', 'similarity', dataset_name, target_type, 'mean_df' + '_' + avg_type + '.csv'), index=False)
+        df_std.to_csv(os.path.join(self.config.current_dir, 'final_results', 'stats', 'similarity', dataset_name, target_type, 'std_df' + '_' + avg_type + '.csv'), index=False)
 
     def calc_ap_statistics(self, ap_dict, target_type, dataset_name):
         df_mean = pd.DataFrame(columns=['emb_name'] + self.mask_names)

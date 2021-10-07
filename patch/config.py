@@ -119,7 +119,7 @@ class BaseConfiguration:
         self.landmark_detector_type = 'mobilefacenet'  # face_alignment, mobilefacenet
 
         # Embedder options
-        self.train_embedder_names = ['resnet50_arcface', 'resnet100_arcface']
+        self.train_embedder_names = ['resnet18_arcface', 'resnet100_arcface']
         self.test_embedder_names = ['resnet100_arcface', 'resnet50_arcface', 'resnet34_arcface', 'resnet18_arcface',
                                     'resnet100_cosface', 'resnet50_cosface', 'resnet34_cosface', 'resnet18_cosface',
                                     'resnet100_magface']
@@ -136,6 +136,9 @@ class BaseConfiguration:
         self.blue_mask_path = os.path.join(self.masks_path, 'blue.png')
         self.black_mask_path = os.path.join(self.masks_path, 'black.png')
         self.white_mask_path = os.path.join(self.masks_path, 'white.png')
+        self.face1_mask_path = os.path.join(self.masks_path, 'face1.png')
+        self.face2_mask_path = os.path.join(self.masks_path, 'face2.png')
+        self.face3_mask_path = os.path.join(self.masks_path, 'face3.png')
 
         self.update_current_dir()
 

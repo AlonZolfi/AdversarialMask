@@ -41,7 +41,10 @@ class Evaluator:
         self.blue_mask_t = utils.load_mask(self.config, self.config.blue_mask_path, device)
         self.black_mask_t = utils.load_mask(self.config, self.config.black_mask_path, device)
         self.white_mask_t = utils.load_mask(self.config, self.config.white_mask_path, device)
-        self.mask_names = ['Clean', 'Adv', 'Random', 'Blue', 'Black', 'White']
+        self.face1_mask_t = utils.load_mask(self.config, self.config.face1_mask_path, device)
+        self.face2_mask_t = utils.load_mask(self.config, self.config.face2_mask_path, device)
+        self.face3_mask_t = utils.load_mask(self.config, self.config.face3_mask_path, device)
+        self.mask_names = ['Clean', 'Adv', 'Random', 'Blue', 'Black', 'White', 'Face1', "Face2", 'Face3']
 
     def test(self):
         if self.config.is_real_person:
@@ -155,8 +158,21 @@ class Evaluator:
                                                    self.adv_mask_class.fxz_projector, img_batch,
                                                    self.white_mask_t[:, :3],
                                                    self.white_mask_t[:, 3], is_3d=True)
+        img_batch_applied_face1 = utils.apply_mask(self.adv_mask_class.location_extractor,
+                                                   self.adv_mask_class.fxz_projector, img_batch,
+                                                   self.face1_mask_t[:, :3],
+                                                   self.face1_mask_t[:, 3], is_3d=True)
+        img_batch_applied_face2 = utils.apply_mask(self.adv_mask_class.location_extractor,
+                                                   self.adv_mask_class.fxz_projector, img_batch,
+                                                   self.face2_mask_t[:, :3],
+                                                   self.face2_mask_t[:, 3], is_3d=True)
+        img_batch_applied_face3 = utils.apply_mask(self.adv_mask_class.location_extractor,
+                                                   self.adv_mask_class.fxz_projector, img_batch,
+                                                   self.face3_mask_t[:, :3],
+                                                   self.face3_mask_t[:, 3], is_3d=True)
 
-        return img_batch_applied_adv, img_batch_applied_random, img_batch_applied_blue, img_batch_applied_black, img_batch_applied_white
+        return img_batch_applied_adv, img_batch_applied_random, img_batch_applied_blue, img_batch_applied_black, \
+               img_batch_applied_white, img_batch_applied_face1, img_batch_applied_face2, img_batch_applied_face3
 
     def get_all_embeddings(self, img_batch, img_batch_applied_masks):
         batch_embs = {}

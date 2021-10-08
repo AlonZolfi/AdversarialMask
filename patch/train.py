@@ -288,8 +288,7 @@ class AdversarialMask:
 
 
 def main():
-    mode = 'private'
-    # mode = 'cluster'
+    mode = 'universal'
     config = patch_config_types[mode]()
     print('Starting train...', flush=True)
     adv_mask = AdversarialMask(config)

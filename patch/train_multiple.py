@@ -11,19 +11,20 @@ from visualization import box_plots_examples
 
 
 def train_multiple_persons():
-    mode = 'private'
+    mode = 'targeted'
     config = patch_config_types[mode]()
     output_folders = []
-    for i, lab in enumerate(os.listdir(config.img_dir)[:100]):
+    for i, lab in enumerate(os.listdir(config.train_img_dir)[:1]):
         config.update_current_dir()
         config.set_attribute('celeb_lab', [lab])
         config.set_attribute('celeb_lab_mapper', {0: lab})
-        print(f'Starting train person {i+1}...', flush=True)
+        config.update_test_celeb_lab()
         adv_mask = AdversarialMask(config)
+        print(f'Starting train person {i+1}...', flush=True)
         adv_mask.train()
         print('Finished train...', flush=True)
-        print(f'Starting test person {i+1}...', flush=True)
         evaluator = Evaluator(adv_mask)
+        print(f'Starting test person {i+1}...', flush=True)
         evaluator.test()
         print('Finished test...', flush=True)
         output_folders.append(config.current_dir)

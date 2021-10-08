@@ -55,17 +55,17 @@ class FaceXZooProjector(nn.Module):
         self.uv_face_src = transforms.ToTensor()(Image.open('../prnet/uv_face_mask.png').convert('L')).to(
             device).unsqueeze(0)
         self.triangles = torch.from_numpy(np.loadtxt('../prnet/triangles.txt').astype(np.int64)).T.to(device)
-        self.minangle = -3 / 180 * math.pi
-        self.maxangle = 3 / 180 * math.pi
-        self.min_trans_x = -0.03
-        self.max_trans_x = 0.03
-        self.min_trans_y = -0.03
-        self.max_trans_y = 0.03
+        self.minangle = -5 / 180 * math.pi
+        self.maxangle = 5 / 180 * math.pi
+        self.min_trans_x = -0.05
+        self.max_trans_x = 0.05
+        self.min_trans_y = -0.05
+        self.max_trans_y = 0.05
         self.min_contrast = 0.8
         self.max_contrast = 1.2
         self.min_brightness = -0.1
         self.max_brightness = 0.1
-        self.noise_factor = 0.05
+        self.noise_factor = 0.1
 
     def forward(self, img_batch, landmarks, adv_patch, uv_mask_src=None, do_aug=False, is_3d=False):
         # transforms.ToPILImage()(img_batch[0].detach().cpu()).show()

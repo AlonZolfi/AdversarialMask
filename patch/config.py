@@ -68,33 +68,13 @@ class BaseConfiguration:
 
         # Train dataset options
         self.is_real_person = False
-        self.train_dataset_name = 'CASIA'  # CASIA-WebFace_aligned_100, CASIA-WebFace_aligned_1000, CelebA_aligned, CASIA_aligned_clean1_center
+        self.train_dataset_name = 'CASIA-WebFace_aligned'  # CASIA-WebFace_aligned_100, CASIA-WebFace_aligned_1000, CelebA_aligned, CASIA_aligned_clean1_center
         self.train_img_dir = os.path.join('..', 'datasets', self.train_dataset_name)
         self.train_number_of_people = 100
         self.celeb_lab = os.listdir(self.train_img_dir)[:self.train_number_of_people]  # 2820, 3699, 9040, 9915, os.listdir(self.img_dir)
         self.celeb_lab_mapper = {i: lab for i, lab in enumerate(self.celeb_lab)}
         self.num_of_train_images = 5
 
-        # Test dataset options
-        self.test_dataset_names = ['CASIA', 'CelebA', 'MS-Celeb']
-        self.test_img_dir = {name: os.path.join('..', 'datasets', name) for name in self.test_dataset_names}
-        self.test_number_of_people = 100
-        self.test_celeb_lab = {}
-        for dataset_name, img_dir in self.test_img_dir.items():
-            label_list = os.listdir(img_dir)[:self.test_number_of_people]
-            if dataset_name == self.train_dataset_name:
-                label_list = os.listdir(img_dir)[-self.test_number_of_people:]
-            self.test_celeb_lab[dataset_name] = label_list
-        self.test_celeb_lab_mapper = {dataset_name: {i: lab for i, lab in enumerate(self.test_celeb_lab[dataset_name])} for dataset_name in self.test_dataset_names}
-        # self.number_of_test_people = 0
-        # self.celeb_lab_test = os.listdir(self.img_dir)[self.number_of_train_people+1:self.number_of_test_people]
-        # self.celeb_lab_mapper_test = {i: lab for i, lab in enumerate(self.celeb_lab_test)}
-
-        # self.train_img_dir = os.path.join('..', 'datasets', self.dataset_name, 'train')
-        # self.test_img_dir = os.path.join('..', 'datasets', self.dataset_name, 'test')
-
-        # self.val_split = 0
-        # self.test_split = 0.8
         self.shuffle = True
         self.img_size = (112, 112)
         self.train_batch_size = 4
@@ -105,7 +85,7 @@ class BaseConfiguration:
         self.mask_aug = True
         self.patch_size = (128, 128)  # height, width
         self.initial_patch = 'white'  # body, white, random, stripes, l_stripes
-        self.epochs = 100
+        self.epochs = 1
         self.start_learning_rate = 1e-2
         self.es_patience = 7
         self.sc_patience = 2
@@ -123,7 +103,6 @@ class BaseConfiguration:
         self.test_embedder_names = ['resnet100_arcface', 'resnet50_arcface', 'resnet34_arcface', 'resnet18_arcface',
                                     'resnet100_cosface', 'resnet50_cosface', 'resnet34_cosface', 'resnet18_cosface',
                                     'resnet100_magface']
-        self.same_person_threshold = 0.55
 
         # Loss options
         self.dist_loss_type = 'cossim'  # cossim, L2, L1
@@ -152,14 +131,6 @@ class BaseConfiguration:
         if 'SLURM_JOBID' in os.environ.keys():
             self.current_dir += '_' + os.environ['SLURM_JOBID']
 
-    def update_test_celeb_lab(self):
-        self.test_celeb_lab = {}
-        for dataset_name, img_dir in self.test_img_dir.items():
-            label_list = os.listdir(img_dir)[:self.test_number_of_people]
-            if dataset_name == self.train_dataset_name:
-                label_list = os.listdir(img_dir)[-self.test_number_of_people:]
-            self.test_celeb_lab[dataset_name] = label_list
-
 
 class TrainingOnCluster(BaseConfiguration):
     def __init__(self):
@@ -173,8 +144,48 @@ class TrainingOnPrivateComputer(BaseConfiguration):
         self.patch_name = 'private'
 
 
+class UniversalAttack(BaseConfiguration):
+    def __init__(self):
+        super(UniversalAttack, self).__init__()
+        self.patch_name = 'universal'
+        self.num_of_train_images = 5
+        self.train_batch_size = 4
+        self.test_batch_size = 32
+        # Test dataset options
+        self.test_dataset_names = ['CASIA', 'CelebA', 'MS-Celeb']
+        self.test_img_dir = {name: os.path.join('..', 'datasets', name) for name in self.test_dataset_names}
+        self.test_number_of_people = 100
+        self.update_test_celeb_lab()
+
+    def update_test_celeb_lab(self):
+        self.test_celeb_lab = {}
+        for dataset_name, img_dir in self.test_img_dir.items():
+            label_list = os.listdir(img_dir)[:self.test_number_of_people]
+            if dataset_name == self.train_dataset_name:
+                label_list = os.listdir(img_dir)[-self.test_number_of_people:]
+            self.test_celeb_lab[dataset_name] = label_list
+        self.test_celeb_lab_mapper = {dataset_name: {i: lab for i, lab in enumerate(self.test_celeb_lab[dataset_name])}
+                                      for dataset_name in self.test_dataset_names}
+
+
+class TargetedAttack(BaseConfiguration):
+    def __init__(self):
+        super(TargetedAttack, self).__init__()
+        self.patch_name = 'targeted'
+        self.num_of_train_images = 10
+        self.train_batch_size = 1
+        self.test_batch_size = 2
+        self.test_img_dir = {self.train_dataset_name: self.train_img_dir}
+
+    def update_test_celeb_lab(self):
+        self.test_celeb_lab = {self.train_dataset_name: self.celeb_lab}
+        self.test_celeb_lab_mapper = {self.train_dataset_name: self.celeb_lab_mapper}
+
+
 patch_config_types = {
     "base": BaseConfiguration,
     "cluster": TrainingOnCluster,
-    "private": TrainingOnPrivateComputer
+    "private": TrainingOnPrivateComputer,
+    "universal": UniversalAttack,
+    "targeted": TargetedAttack,
 }

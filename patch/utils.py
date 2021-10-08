@@ -373,9 +373,9 @@ def get_train_loaders(config):
     return train_no_aug_loader, train_loader
 
 
-def get_test_loaders(config):
+def get_test_loaders(config, dataset_names):
     test_loaders = {}
-    for dataset_name in config.test_dataset_names:
+    for dataset_name in dataset_names:
         dataset = CustomDataset1(img_dir=config.test_img_dir[dataset_name],
                                  celeb_lab_mapper=config.test_celeb_lab_mapper[dataset_name],
                                  img_size=config.img_size,
@@ -389,7 +389,7 @@ def get_test_loaders(config):
     return test_loaders
 
 
-def get_loaders_real_images(config):
+'''def get_loaders_real_images(config):
     val_indices, test_indices = get_split_indices_real_images(config)
     train_indices = range(len(os.listdir(config.train_img_dir)))
     train_dataset_no_aug = CustomDataset1(img_dir=config.train_img_dir,
@@ -422,7 +422,7 @@ def get_loaders_real_images(config):
     validation_loader = DataLoader(val_dataset, batch_size=config.train_batch_size)
     test_loader = DataLoader(test_dataset)
 
-    return train_no_aug_loader, train_loader, validation_loader, test_loader
+    return train_no_aug_loader, train_loader, validation_loader, test_loader'''
 
 
 def normalize_batch(adv_mask_class, img_batch):

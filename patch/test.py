@@ -30,7 +30,7 @@ class Evaluator:
         self.adv_mask_class = adv_mask_class
         self.transform = transforms.Compose([transforms.Resize(self.config.patch_size), transforms.ToTensor()])
         self.embedders = utils.load_embedder(self.config.test_embedder_names, device=device)
-        self.loaders = utils.get_test_loaders(self.config)
+        self.loaders = utils.get_test_loaders(self.config, self.config.test_celeb_lab.keys())
         self.target_embedding_w_mask, self.target_embedding_wo_mask = {}, {}
         for dataset_name, loader in self.loaders.items():
             self.target_embedding_w_mask[dataset_name] = utils.get_person_embedding(self.config, loader, self.config.test_celeb_lab_mapper[dataset_name], self.adv_mask_class.location_extractor,
@@ -50,7 +50,7 @@ class Evaluator:
         if self.config.is_real_person:
             return
         self.calc_overall_similarity()
-        for dataset_name in self.config.test_dataset_names:
+        for dataset_name in self.loaders.keys():
             similarities_target_with_mask = self.get_final_similarity_from_disk('with_mask', dataset_name=dataset_name)
             similarities_target_without_mask = self.get_final_similarity_from_disk('without_mask', dataset_name=dataset_name)
             self.calc_similarity_statistics(similarities_target_with_mask, target_type='with', dataset_name=dataset_name)
@@ -68,7 +68,7 @@ class Evaluator:
         if len(self.config.celeb_lab) > 1:
             converters = {"y_true": lambda x: list(map(int, x.strip("[]").split(", "))),
                           "y_pred": lambda x: list(map(float, x.strip("[]").split(", ")))}
-            for dataset_name in self.config.test_dataset_names:
+            for dataset_name in self.loaders.keys():
                 preds_with_mask_df = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', dataset_name, 'preds_with_mask.csv'), converters=converters)
                 precisions_with_mask, recalls_with_mask, aps_with_mask = self.get_pr(preds_with_mask_df, dataset_name=dataset_name)
                 self.plot_pr_curve(precisions_with_mask, recalls_with_mask, aps_with_mask, target_type='with_mask', dataset_name=dataset_name)

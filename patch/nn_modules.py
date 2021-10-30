@@ -52,7 +52,10 @@ class FaceXZooProjector(nn.Module):
         self.patch_size_height = patch_size[0]
         self.device = device
         self.uv_mask_src = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L')).to(device).unsqueeze(0)
-        self.mask_width = torch.tensor((102-9)/2, device=device, dtype=torch.float32)
+        image_info = torch.nonzero(self.uv_mask_src, as_tuple=False)
+        left, _ = torch.min(image_info[:, 3], dim=0)
+        right, _ = torch.max(image_info[:, 3], dim=0)
+        self.mask_width = torch.tensor((right - left) / 2, device=device, dtype=torch.float32)
         self.uv_face_src = transforms.ToTensor()(Image.open('../prnet/uv_face_mask.png').convert('L')).to(
             device).unsqueeze(0)
         self.triangles = torch.from_numpy(np.loadtxt('../prnet/triangles.txt').astype(np.int64)).T.to(device)
@@ -79,7 +82,8 @@ class FaceXZooProjector(nn.Module):
         # transforms.ToPILImage()(adv_patch[0].detach().cpu()).show()
         if not is_3d:
             adv_patch_other = self.align_patch(adv_patch, landmarks)
-            # transforms.ToPILImage()(torch.where(adv_patch_other[0] != 0, adv_patch_other[0], img_batch[0])).show()
+            #for i in range(adv_patch_other.shape[0]):
+            #    transforms.ToPILImage()(torch.where(adv_patch_other[i].sum(dim=0) != 0, adv_patch_other[i], img_batch[i])).show()
             # transforms.ToPILImage()(adv_patch_other[0].detach().cpu()).show()
             texture_patch = kornia.geometry.remap(adv_patch_other, map_x=pos_orig[:, 0], map_y=pos_orig[:, 1],
                                                   mode='nearest') * self.uv_face_src
@@ -172,6 +176,7 @@ class FaceXZooProjector(nn.Module):
         landmarks = landmarks.type(torch.float32)
         max_side_dist = torch.maximum(landmarks[:, 33, 0]-landmarks[:, 2, 0], landmarks[:, 14, 0]-landmarks[:, 33, 0])
         max_side_dist = torch.where(max_side_dist < self.mask_width, self.mask_width, max_side_dist)
+
         left_top = torch.stack((landmarks[:, 33, 0]-max_side_dist, landmarks[:, 28, 1]), dim=-1)
         right_top = torch.stack((landmarks[:, 33, 0]+max_side_dist, landmarks[:, 28, 1]), dim=-1)
         left_bottom = torch.stack((landmarks[:, 33, 0]-max_side_dist, landmarks[:, 8, 1]), dim=-1)

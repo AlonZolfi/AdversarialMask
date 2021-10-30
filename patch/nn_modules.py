@@ -55,7 +55,8 @@ class FaceXZooProjector(nn.Module):
         image_info = torch.nonzero(self.uv_mask_src, as_tuple=False)
         left, _ = torch.min(image_info[:, 3], dim=0)
         right, _ = torch.max(image_info[:, 3], dim=0)
-        self.mask_width = torch.tensor((right - left) / 2, device=device, dtype=torch.float32)
+        self.mask_width = torch.tensor((right - left) / 2, device=device, dtype=torch.float32) + 5
+        self.patch_bbox = self.get_bbox(self.uv_mask_src)
         self.uv_face_src = transforms.ToTensor()(Image.open('../prnet/uv_face_mask.png').convert('L')).to(
             device).unsqueeze(0)
         self.triangles = torch.from_numpy(np.loadtxt('../prnet/triangles.txt').astype(np.int64)).T.to(device)
@@ -82,8 +83,8 @@ class FaceXZooProjector(nn.Module):
         # transforms.ToPILImage()(adv_patch[0].detach().cpu()).show()
         if not is_3d:
             adv_patch_other = self.align_patch(adv_patch, landmarks)
-            #for i in range(adv_patch_other.shape[0]):
-            #    transforms.ToPILImage()(torch.where(adv_patch_other[i].sum(dim=0) != 0, adv_patch_other[i], img_batch[i])).show()
+            for i in range(adv_patch_other.shape[0]):
+               transforms.ToPILImage()(torch.where(adv_patch_other[i].sum(dim=0) != 0, adv_patch_other[i], img_batch[i])).show()
             # transforms.ToPILImage()(adv_patch_other[0].detach().cpu()).show()
             texture_patch = kornia.geometry.remap(adv_patch_other, map_x=pos_orig[:, 0], map_y=pos_orig[:, 1],
                                                   mode='nearest') * self.uv_face_src
@@ -119,8 +120,8 @@ class FaceXZooProjector(nn.Module):
         new_image = img_batch * (1 - face_mask) + (new_image * face_mask)
         new_image.data.clamp_(0, 1)
 
-        # for i in range(new_image.shape[0]):
-        #     transforms.ToPILImage()(new_image[i]).show()
+        for i in range(new_image.shape[0]):
+            transforms.ToPILImage()(new_image[i]).show()
         return new_image
 
     def align_patch_old(self, adv_patch, landmarks):
@@ -172,7 +173,12 @@ class FaceXZooProjector(nn.Module):
 
     def align_patch(self, adv_patch, landmarks):
         batch_size = landmarks.shape[0]
-        src_pts = self.get_bbox(adv_patch).repeat(batch_size, 1, 1)
+        src_pts = self.patch_bbox.repeat(batch_size, 1, 1)
+        # src_pts[:, 0, 0] = src_pts[:, 0, 0] - 10
+        # src_pts[:, 1, 0] = src_pts[:, 1, 0] + 10
+        # src_pts[:, 2, 0] = src_pts[:, 2, 0] - 10
+        # src_pts[:, 3, 0] = src_pts[:, 3, 0] + 10
+
         landmarks = landmarks.type(torch.float32)
         max_side_dist = torch.maximum(landmarks[:, 33, 0]-landmarks[:, 2, 0], landmarks[:, 14, 0]-landmarks[:, 33, 0])
         max_side_dist = torch.where(max_side_dist < self.mask_width, self.mask_width, max_side_dist)

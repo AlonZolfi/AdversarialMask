@@ -1,3 +1,5 @@
+import random
+
 import torch
 import pandas as pd
 import itertools
@@ -16,6 +18,15 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
 from tqdm import tqdm
 from sklearn import metrics
+import torch
+from torchvision import transforms
+from nn_modules import LandmarkExtractor, FaceXZooProjector
+from PIL import Image
+import os
+from pathlib import Path
+import utils
+from config import BaseConfiguration
+
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -33,7 +44,7 @@ def get_all_pairs(root_path, output_path):
 
 def raw_to_df(pairs_path, img_root_dir):
     df = pd.DataFrame(columns=['path1', 'path2', 'same'])
-    with open(pairs_path, 'r') as f, open('threshold/digital/bad_images.txt', 'r') as bad:
+    with open(pairs_path, 'r') as f, open('../threshold/digital/bad_images.txt', 'r') as bad:
         bad_images = bad.read().splitlines()
         for line in f:
             new_row = None
@@ -79,23 +90,43 @@ def equal_sample_from_df(pairs_df, N):
 
 @torch.no_grad()
 def calc_optimal_threshold(pairs_path, img_root_dir):
-    '''pairs_df = raw_to_df(pairs_path, img_root_dir)
-    embedder = load_embedder('arcface',
-                             'face_recognition/arcface_torch/weights/arcface_resnet100.pth',
-                             device)
-    loader = DataLoader(dataset=PairsDataset(pairs_df), shuffle=False, batch_size=64)
-    sims = pd.Series(dtype=np.float64)
-    cos_sim = CosineSimilarity()
-    for img_batch1, img_batch2 in tqdm(loader):
-        emb1 = embedder(img_batch1)
-        emb2 = embedder(img_batch2)
-        sim = cos_sim(emb1, emb2)
-        sims = sims.append(pd.Series(sim.cpu().numpy()), ignore_index=True)
-    pairs_df['similarity'] = sims.values
-    pairs_df.to_csv('threshold/digital/pairs_with_sim.csv', index=False)'''
-    pairs_df = pd.read_csv('pairs_with_sim.csv')
+    calc_new = False
+    cfg = BaseConfiguration()
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    face_landmark_detector = utils.get_landmark_detector(cfg, device)
+    location_extractor = LandmarkExtractor(device, face_landmark_detector, cfg.img_size).to(device)
+    fxz_projector = FaceXZooProjector(device, cfg.img_size, cfg.patch_size).to(device)
+    mask_t = utils.load_mask(cfg, os.path.join('../data/masks/blue.png'), device)
+    if calc_new:
+        pairs_df = raw_to_df(pairs_path, img_root_dir)
+        embedder = load_embedder(['resnet100_arcface'], device)
+        loader = DataLoader(dataset=PairsDataset(pairs_df), shuffle=False, batch_size=64)
+        sims = pd.Series(dtype=np.float64)
+        cos_sim = CosineSimilarity()
+        for img_batch1, img_batch2 in tqdm(loader):
+            if random.randint(0, 10) > 5:
+                img_batch1 = utils.apply_mask(location_extractor, fxz_projector, img_batch1, mask_t[:, :3], mask_t[:, 3], is_3d=True)
+            emb1 = embedder['resnet100_arcface'](img_batch1)
+            emb2 = embedder['resnet100_arcface'](img_batch2)
+            sim = cos_sim(emb1, emb2)
+            sims = sims.append(pd.Series(sim.cpu().numpy()), ignore_index=True)
+        pairs_df['similarity'] = sims.values
+        pairs_df.to_csv('pairs_with_sim.csv', index=False)
+        return
+    else:
+        pairs_df = pd.read_csv('pairs_with_sim.csv')
     y_true = pairs_df.same.values.astype(int)
-    preds = (pairs_df.similarity.values + 1) / 2
+    # preds = (pairs_df.similarity.values + 1) / 2
+    preds = pairs_df.similarity.values
+    # import warnings
+    # warnings.filterwarnings("ignore")
+    #
+    # only_ones = pairs_df[pairs_df['same']==0]
+    # for threshold in np.arange(-1, 1, 0.01):
+    #     only_ones['decision'] = np.where(only_ones['similarity'] > threshold, 1, 0)
+    #     cnt = len(only_ones[(only_ones['decision'] == 1) & (only_ones['same']==0)])
+    #     far = cnt / len(only_ones) * 100
+    #     print(threshold, far)
 
     fpr, tpr, thresholds = metrics.roc_curve(y_true, preds)
     auc_score = metrics.roc_auc_score(y_true, preds)
@@ -165,13 +196,13 @@ class PairsDataset(Dataset):
             image = cv2.warpAffine(image, M, (112, 112))
         cut = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) / 255
         cut_t = torch.from_numpy(cut).permute(2, 0, 1).type(torch.float32).to(device)
-        if len(points) > 1:
-            from torchvision import transforms
-            transforms.ToPILImage()(cut_t).show()
+        # if len(points) > 1:
+        #     from torchvision import transforms
+        #     transforms.ToPILImage()(cut_t).show()
         return cut_t
 
 
-calc_optimal_threshold('threshold/digital/lfw_pairs.txt', 'datasets/lfw/')
+calc_optimal_threshold('../threshold/digital/lfw_pairs.txt', '../datasets/lfw/')
 
 
 def filter_images(root_path):
@@ -185,7 +216,7 @@ def filter_images(root_path):
         if points is None or len(points) > 1:
             bad_imgs.append(img_path)
     print(len(bad_imgs))
-    with open('bad_images.txt', 'w') as f:
+    with open('digital/bad_images.txt', 'w') as f:
         for bad_img in bad_imgs:
             f.write(bad_img)
             f.write('\n')

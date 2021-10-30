@@ -39,24 +39,24 @@ class Evaluator:
                                                                                      self.adv_mask_class.fxz_projector, self.embedders, device, include_others=False)
         self.random_mask_t = utils.load_mask(self.config, self.config.random_mask_path, device)
         self.blue_mask_t = utils.load_mask(self.config, self.config.blue_mask_path, device)
-        self.black_mask_t = utils.load_mask(self.config, self.config.black_mask_path, device)
-        self.white_mask_t = utils.load_mask(self.config, self.config.white_mask_path, device)
+        # self.black_mask_t = utils.load_mask(self.config, self.config.black_mask_path, device)
+        # self.white_mask_t = utils.load_mask(self.config, self.config.white_mask_path, device)
         self.face1_mask_t = utils.load_mask(self.config, self.config.face1_mask_path, device)
-        self.face2_mask_t = utils.load_mask(self.config, self.config.face2_mask_path, device)
+        # self.face2_mask_t = utils.load_mask(self.config, self.config.face2_mask_path, device)
         self.face3_mask_t = utils.load_mask(self.config, self.config.face3_mask_path, device)
-        self.mask_names = ['Clean', 'Adv', 'Random', 'Blue', 'Black', 'White', 'Face1', "Face2", 'Face3']
+        self.mask_names = ['Clean', 'Adv', 'Random', 'Blue', 'Face1', 'Face3']
 
     def test(self):
         if self.config.is_real_person:
             return
         self.calc_overall_similarity()
         for dataset_name in self.loaders.keys():
-            similarities_target_with_mask = self.get_final_similarity_from_disk('with_mask', dataset_name=dataset_name)
-            similarities_target_without_mask = self.get_final_similarity_from_disk('without_mask', dataset_name=dataset_name)
-            self.calc_similarity_statistics(similarities_target_with_mask, target_type='with', dataset_name=dataset_name)
-            self.calc_similarity_statistics(similarities_target_without_mask, target_type='without', dataset_name=dataset_name)
-            self.plot_sim_box(similarities_target_with_mask, target_type='with', dataset_name=dataset_name)
-            self.plot_sim_box(similarities_target_without_mask, target_type='without', dataset_name=dataset_name)
+            # similarities_target_with_mask = self.get_final_similarity_from_disk('with_mask', dataset_name=dataset_name)
+            # similarities_target_without_mask = self.get_final_similarity_from_disk('without_mask', dataset_name=dataset_name)
+            # self.calc_similarity_statistics(similarities_target_with_mask, target_type='with', dataset_name=dataset_name)
+            # self.calc_similarity_statistics(similarities_target_without_mask, target_type='without', dataset_name=dataset_name)
+            # self.plot_sim_box(similarities_target_with_mask, target_type='with', dataset_name=dataset_name)
+            # self.plot_sim_box(similarities_target_without_mask, target_type='without', dataset_name=dataset_name)
 
             similarities_target_with_mask_by_person = self.get_final_similarity_from_disk('with_mask', dataset_name=dataset_name, by_person=True)
             similarities_target_without_mask_by_person = self.get_final_similarity_from_disk('without_mask', dataset_name=dataset_name, by_person=True)
@@ -65,18 +65,18 @@ class Evaluator:
             self.plot_sim_box(similarities_target_with_mask_by_person, target_type='with', dataset_name=dataset_name, by_person=True)
             self.plot_sim_box(similarities_target_without_mask_by_person, target_type='without', dataset_name=dataset_name, by_person=True)
 
-        if len(self.config.celeb_lab) > 1:
-            converters = {"y_true": lambda x: list(map(int, x.strip("[]").split(", "))),
-                          "y_pred": lambda x: list(map(float, x.strip("[]").split(", ")))}
-            for dataset_name in self.loaders.keys():
-                preds_with_mask_df = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', dataset_name, 'preds_with_mask.csv'), converters=converters)
-                precisions_with_mask, recalls_with_mask, aps_with_mask = self.get_pr(preds_with_mask_df, dataset_name=dataset_name)
-                self.plot_pr_curve(precisions_with_mask, recalls_with_mask, aps_with_mask, target_type='with_mask', dataset_name=dataset_name)
-                self.calc_ap_statistics(aps_with_mask, target_type='with_mask', dataset_name=dataset_name)
-                preds_without_mask_df = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', dataset_name, 'preds_without_mask.csv'), converters=converters)
-                precisions_without_mask, recalls_without_mask, aps_without_mask = self.get_pr(preds_without_mask_df, dataset_name=dataset_name)
-                self.plot_pr_curve(precisions_without_mask, recalls_without_mask, aps_without_mask, target_type='without_mask', dataset_name=dataset_name)
-                self.calc_ap_statistics(aps_without_mask, target_type='without_mask', dataset_name=dataset_name)
+        # if len(self.config.celeb_lab) > 1:
+        #     converters = {"y_true": lambda x: list(map(int, x.strip("[]").split(", "))),
+        #                   "y_pred": lambda x: list(map(float, x.strip("[]").split(", ")))}
+        #     for dataset_name in self.loaders.keys():
+        #         preds_with_mask_df = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', dataset_name, 'preds_with_mask.csv'), converters=converters)
+        #         precisions_with_mask, recalls_with_mask, aps_with_mask = self.get_pr(preds_with_mask_df, dataset_name=dataset_name)
+        #         self.plot_pr_curve(precisions_with_mask, recalls_with_mask, aps_with_mask, target_type='with_mask', dataset_name=dataset_name)
+        #         self.calc_ap_statistics(aps_with_mask, target_type='with_mask', dataset_name=dataset_name)
+        #         preds_without_mask_df = pd.read_csv(os.path.join(self.config.current_dir, 'saved_preds', dataset_name, 'preds_without_mask.csv'), converters=converters)
+        #         precisions_without_mask, recalls_without_mask, aps_without_mask = self.get_pr(preds_without_mask_df, dataset_name=dataset_name)
+        #         self.plot_pr_curve(precisions_without_mask, recalls_without_mask, aps_without_mask, target_type='without_mask', dataset_name=dataset_name)
+        #         self.calc_ap_statistics(aps_without_mask, target_type='without_mask', dataset_name=dataset_name)
 
     @torch.no_grad()
     def calc_overall_similarity(self):
@@ -145,34 +145,34 @@ class Evaluator:
                                                  self.adv_mask_class.fxz_projector, img_batch, adv_patch)
         img_batch_applied_random = utils.apply_mask(self.adv_mask_class.location_extractor,
                                                     self.adv_mask_class.fxz_projector, img_batch,
-                                                    self.random_mask_t)
+                                                    self.random_mask_t[:, :3],
+                                                    self.random_mask_t[:, 3])
         img_batch_applied_blue = utils.apply_mask(self.adv_mask_class.location_extractor,
                                                   self.adv_mask_class.fxz_projector, img_batch,
                                                   self.blue_mask_t[:, :3],
                                                   self.blue_mask_t[:, 3], is_3d=True)
-        img_batch_applied_black = utils.apply_mask(self.adv_mask_class.location_extractor,
-                                                   self.adv_mask_class.fxz_projector, img_batch,
-                                                   self.black_mask_t[:, :3],
-                                                   self.black_mask_t[:, 3], is_3d=True)
-        img_batch_applied_white = utils.apply_mask(self.adv_mask_class.location_extractor,
-                                                   self.adv_mask_class.fxz_projector, img_batch,
-                                                   self.white_mask_t[:, :3],
-                                                   self.white_mask_t[:, 3], is_3d=True)
+        # img_batch_applied_black = utils.apply_mask(self.adv_mask_class.location_extractor,
+        #                                            self.adv_mask_class.fxz_projector, img_batch,
+        #                                            self.black_mask_t[:, :3],
+        #                                            self.black_mask_t[:, 3], is_3d=True)
+        # img_batch_applied_white = utils.apply_mask(self.adv_mask_class.location_extractor,
+        #                                            self.adv_mask_class.fxz_projector, img_batch,
+        #                                            self.white_mask_t[:, :3],
+        #                                            self.white_mask_t[:, 3], is_3d=True)
         img_batch_applied_face1 = utils.apply_mask(self.adv_mask_class.location_extractor,
                                                    self.adv_mask_class.fxz_projector, img_batch,
                                                    self.face1_mask_t[:, :3],
                                                    self.face1_mask_t[:, 3], is_3d=True)
-        img_batch_applied_face2 = utils.apply_mask(self.adv_mask_class.location_extractor,
-                                                   self.adv_mask_class.fxz_projector, img_batch,
-                                                   self.face2_mask_t[:, :3],
-                                                   self.face2_mask_t[:, 3], is_3d=True)
+        # img_batch_applied_face2 = utils.apply_mask(self.adv_mask_class.location_extractor,
+        #                                            self.adv_mask_class.fxz_projector, img_batch,
+        #                                            self.face2_mask_t[:, :3],
+        #                                            self.face2_mask_t[:, 3], is_3d=True)
         img_batch_applied_face3 = utils.apply_mask(self.adv_mask_class.location_extractor,
                                                    self.adv_mask_class.fxz_projector, img_batch,
                                                    self.face3_mask_t[:, :3],
                                                    self.face3_mask_t[:, 3], is_3d=True)
 
-        return img_batch_applied_adv, img_batch_applied_random, img_batch_applied_blue, img_batch_applied_black, \
-               img_batch_applied_white, img_batch_applied_face1, img_batch_applied_face2, img_batch_applied_face3
+        return img_batch_applied_adv, img_batch_applied_random, img_batch_applied_blue, img_batch_applied_face1, img_batch_applied_face3
 
     def get_all_embeddings(self, img_batch, img_batch_applied_masks):
         batch_embs = {}
@@ -182,17 +182,17 @@ class Evaluator:
                 batch_embs[emb_name].append(emb_model(img_batch_applied_mask.to(device)).cpu().numpy())
         return batch_embs
 
-    def save_all_embeddings(self, all_test_image_clean, all_test_image_adv, all_test_image_random, all_test_image_blue,
-                            all_test_image_black, all_test_image_white,
-                            batch_emb_clean, batch_emb_adv, batch_emb_random, batch_emb_blue, batch_emb_black,
-                            batch_emb_white):
-        all_test_image_clean = np.concatenate([all_test_image_clean, batch_emb_clean])
-        all_test_image_adv = np.concatenate([all_test_image_adv, batch_emb_adv])
-        all_test_image_random = np.concatenate([all_test_image_random, batch_emb_random])
-        all_test_image_blue = np.concatenate([all_test_image_blue, batch_emb_blue])
-        all_test_image_black = np.concatenate([all_test_image_black, batch_emb_black])
-        all_test_image_white = np.concatenate([all_test_image_white, batch_emb_white])
-        return all_test_image_clean, all_test_image_adv, all_test_image_random, all_test_image_blue, all_test_image_black, all_test_image_white
+    # def save_all_embeddings(self, all_test_image_clean, all_test_image_adv, all_test_image_random, all_test_image_blue,
+    #                         all_test_image_black, all_test_image_white,
+    #                         batch_emb_clean, batch_emb_adv, batch_emb_random, batch_emb_blue, batch_emb_black,
+    #                         batch_emb_white):
+    #     all_test_image_clean = np.concatenate([all_test_image_clean, batch_emb_clean])
+    #     all_test_image_adv = np.concatenate([all_test_image_adv, batch_emb_adv])
+    #     all_test_image_random = np.concatenate([all_test_image_random, batch_emb_random])
+    #     all_test_image_blue = np.concatenate([all_test_image_blue, batch_emb_blue])
+    #     all_test_image_black = np.concatenate([all_test_image_black, batch_emb_black])
+    #     all_test_image_white = np.concatenate([all_test_image_white, batch_emb_white])
+    #     return all_test_image_clean, all_test_image_adv, all_test_image_random, all_test_image_blue, all_test_image_black, all_test_image_white
 
     def calc_all_similarity(self, all_embeddings, img_names, cls_id, target_type, dataset_name):
         for emb_name in self.config.test_embedder_names:

@@ -145,8 +145,7 @@ class Evaluator:
                                                  self.adv_mask_class.fxz_projector, img_batch, adv_patch)
         img_batch_applied_random = utils.apply_mask(self.adv_mask_class.location_extractor,
                                                     self.adv_mask_class.fxz_projector, img_batch,
-                                                    self.random_mask_t[:, :3],
-                                                    self.random_mask_t[:, 3])
+                                                    self.random_mask_t)
         img_batch_applied_blue = utils.apply_mask(self.adv_mask_class.location_extractor,
                                                   self.adv_mask_class.fxz_projector, img_batch,
                                                   self.blue_mask_t[:, :3],

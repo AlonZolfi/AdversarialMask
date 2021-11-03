@@ -55,10 +55,10 @@ class FaceXZooProjector(nn.Module):
         image_info = torch.nonzero(self.uv_mask_src, as_tuple=False)
         left, _ = torch.min(image_info[:, 3], dim=0)
         right, _ = torch.max(image_info[:, 3], dim=0)
-        self.mask_half_width = torch.tensor((right - left) / 2, device=device, dtype=torch.float32) + 5
+        self.mask_half_width = ((right - left) / 2) + 5
         top, _ = torch.min(image_info[:, 2], dim=0)
         bottom, _ = torch.max(image_info[:, 2], dim=0)
-        self.mask_half_height = torch.tensor((bottom - top) / 2, device=device, dtype=torch.float32)
+        self.mask_half_height = ((bottom - top) / 2)
         self.patch_bbox = self.get_bbox(self.uv_mask_src)
         self.uv_face_src = transforms.ToTensor()(Image.open('../prnet/uv_face_mask.png').convert('L')).to(
             device).unsqueeze(0)
@@ -73,7 +73,7 @@ class FaceXZooProjector(nn.Module):
         self.max_contrast = 1.2
         self.min_brightness = -0.1
         self.max_brightness = 0.1
-        self.noise_factor = 0.1
+        self.noise_factor = 0.05
 
     def forward(self, img_batch, landmarks, adv_patch, uv_mask_src=None, do_aug=False, is_3d=False):
         # transforms.ToPILImage()(img_batch[0].detach().cpu()).show()
@@ -86,8 +86,8 @@ class FaceXZooProjector(nn.Module):
         # transforms.ToPILImage()(adv_patch[0].detach().cpu()).show()
         if not is_3d:
             adv_patch_other = self.align_patch(adv_patch, landmarks)
-            for i in range(adv_patch_other.shape[0]):
-               transforms.ToPILImage()(torch.where(adv_patch_other[i].sum(dim=0) != 0, adv_patch_other[i], img_batch[i])).show()
+            # for i in range(adv_patch_other.shape[0]):
+            #    transforms.ToPILImage()(torch.where(adv_patch_other[i].sum(dim=0) != 0, adv_patch_other[i], img_batch[i])).save('bla.png')
             # transforms.ToPILImage()(adv_patch_other[0].detach().cpu()).show()
             texture_patch = kornia.geometry.remap(adv_patch_other, map_x=pos_orig[:, 0], map_y=pos_orig[:, 1],
                                                   mode='nearest') * self.uv_face_src
@@ -123,8 +123,8 @@ class FaceXZooProjector(nn.Module):
         new_image = img_batch * (1 - face_mask) + (new_image * face_mask)
         new_image.data.clamp_(0, 1)
 
-        for i in range(new_image.shape[0]):
-            transforms.ToPILImage()(new_image[i]).show()
+        # for i in range(new_image.shape[0]):
+        #     transforms.ToPILImage()(new_image[i]).show()
         return new_image
 
     def align_patch_old(self, adv_patch, landmarks):

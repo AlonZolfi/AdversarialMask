@@ -6,7 +6,7 @@ from ..core import FaceDetector
 
 
 class FolderDetector(FaceDetector):
-    '''This is a simple helper module that assumes the faces were detected already
+    '''This is a simple helper module that assumes the physical_adv_faces were detected already
         (either previously or are provided as ground truth).
 
         The class expects to find the bounding boxes in the same format used by

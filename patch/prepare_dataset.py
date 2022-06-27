@@ -63,7 +63,7 @@ def face_crop_raw_images(input_path, output_path):
                 cv2.imwrite(os.path.join(output_path, folder_name, image_path), cut)
 
 
-face_crop_raw_images('../datasets/sample', '../datasets/sample1')
+face_crop_raw_images('../datasets/real', '../datasets/real_aligned')
 
 
 def face_crop_raw_images_batched(input_path, output_path):

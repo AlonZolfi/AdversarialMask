@@ -201,7 +201,7 @@ class BlazeFace(nn.Module):
 
         Returns:
             A list containing a tensor of face detections for each image in
-            the batch. If no faces are found for an image, returns a tensor
+            the batch. If no physical_adv_faces are found for an image, returns a tensor
             of shape (0, 17).
 
         Each face detection is a PyTorch tensor consisting of 17 numbers:
@@ -349,7 +349,7 @@ class BlazeFace(nn.Module):
             ious = overlap_similarity(first_box, other_boxes)
 
             # If two detections don't overlap enough, they are considered
-            # to be from different faces.
+            # to be from different physical_adv_faces.
             mask = ious > self.min_suppression_threshold
             overlapping = remaining[mask]
             remaining = remaining[~mask]

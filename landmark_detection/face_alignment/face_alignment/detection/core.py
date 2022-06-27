@@ -30,9 +30,9 @@ class FaceDetector(object):
             raise ValueError
 
     def detect_from_image(self, tensor_or_path):
-        """Detects faces in a given image.
+        """Detects physical_adv_faces in a given image.
 
-        This function detects the faces present in a provided BGR(usually)
+        This function detects the physical_adv_faces present in a provided BGR(usually)
         image. The input can be either the image itself or the path to it.
 
         Arguments:
@@ -52,9 +52,9 @@ class FaceDetector(object):
         raise NotImplementedError
 
     def detect_from_batch(self, tensor):
-        """Detects faces in a given image.
+        """Detects physical_adv_faces in a given image.
 
-        This function detects the faces present in a provided BGR(usually)
+        This function detects the physical_adv_faces present in a provided BGR(usually)
         image. The input can be either the image itself or the path to it.
 
         Arguments:
@@ -73,7 +73,7 @@ class FaceDetector(object):
         raise NotImplementedError
 
     def detect_from_directory(self, path, extensions=['.jpg', '.png'], recursive=False, show_progress_bar=True):
-        """Detects faces from all the images present in a given directory.
+        """Detects physical_adv_faces from all the images present in a given directory.
 
         Arguments:
             path {string} -- a string containing a path that points to the folder containing the images

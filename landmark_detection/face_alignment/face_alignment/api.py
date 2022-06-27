@@ -126,7 +126,7 @@ class FaceAlignment:
             detected_faces = self.face_detector.detect_from_image(image.copy())
 
         if len(detected_faces) == 0:
-            print("Warning: No faces were detected.")
+            print("Warning: No physical_adv_faces were detected.")
             return None
 
         landmarks = []
@@ -190,7 +190,7 @@ class FaceAlignment:
             detected_faces = self.face_detector.detect_from_batch(image_batch)
 
         if len(detected_faces) == 0:
-            print("Warning: No faces were detected.")
+            print("Warning: No physical_adv_faces were detected.")
             return None
 
         landmarks = []

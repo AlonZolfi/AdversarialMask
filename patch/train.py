@@ -194,7 +194,7 @@ class AdversarialMask:
         uv_face = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L'))
         patch = patch * uv_face
         patch.requires_grad_(True)
-        # transforms.ToPILImage()(torch.rand((1, 3, self.config.patch_size[0], self.config.patch_size[1]), dtype=torch.float32).squeeze(0) * uv_face).save('../data/masks/random.png')
+        # transforms.ToPILImage()(torch.rand((3, self.config.patch_size[0], self.config.patch_size[1]), dtype=torch.float32).squeeze(0) * uv_face).save('../data/masks/random.png')
         # transforms.ToPILImage()(patch.squeeze(0) * uv_face).show()
         return patch
 
@@ -294,10 +294,10 @@ def main():
     adv_mask = AdversarialMask(config)
     adv_mask.train()
     print('Finished train...', flush=True)
-    print('Starting test...', flush=True)
-    evaluator = Evaluator(adv_mask)
-    evaluator.test()
-    print('Finished test...', flush=True)
+    # print('Starting test...', flush=True)
+    # evaluator = Evaluator(adv_mask)
+    # evaluator.test()
+    # print('Finished test...', flush=True)
 
 
 if __name__ == '__main__':

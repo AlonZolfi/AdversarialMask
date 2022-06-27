@@ -9,7 +9,7 @@ from tqdm import tqdm
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") # device object
 
 
-save_path = 'classification_model.pth'
+save_path = 'gender_classification_model_weights.pth'
 
 model = models.resnet18(pretrained=True)
 num_features = model.fc.in_features

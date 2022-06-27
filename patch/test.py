@@ -1,8 +1,17 @@
+import sys
+import os
+if sys.base_prefix.__contains__('home/zolfi'):
+    sys.path.append('/home/zolfi/AdversarialMask')
+    sys.path.append('/home/zolfi/AdversarialMask/patch')
+    os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+
 import warnings
 import utils
 import torch
-import os
 from torch.nn import CosineSimilarity
+from nn_modules import LandmarkExtractor, FaceXZooProjector
+
+from config import patch_config_types
 from torchvision import transforms
 from PIL import Image
 import numpy as np
@@ -20,23 +29,27 @@ import pandas as pd
 matplotlib.use('Agg')
 
 global device
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class Evaluator:
-    def __init__(self, adv_mask_class) -> None:
+    def __init__(self, config, best_patch) -> None:
         super().__init__()
-        self.config = adv_mask_class.config
-        self.adv_mask_class = adv_mask_class
+        self.config = config
+        self.best_patch = best_patch
+        face_landmark_detector = utils.get_landmark_detector(self.config, device)
+        self.location_extractor = LandmarkExtractor(device, face_landmark_detector, self.config.img_size).to(device)
+        # self.preds = self.load_landmarks()
+        self.fxz_projector = FaceXZooProjector(device, self.config.img_size, self.config.patch_size).to(device)
         self.transform = transforms.Compose([transforms.Resize(self.config.patch_size), transforms.ToTensor()])
         self.embedders = utils.load_embedder(self.config.test_embedder_names, device=device)
-        self.loaders = utils.get_test_loaders(self.config, self.config.test_celeb_lab.keys())
+        emb_loaders, self.test_loaders = utils.get_test_loaders(self.config, self.config.test_celeb_lab.keys())
         self.target_embedding_w_mask, self.target_embedding_wo_mask = {}, {}
-        for dataset_name, loader in self.loaders.items():
-            self.target_embedding_w_mask[dataset_name] = utils.get_person_embedding(self.config, loader, self.config.test_celeb_lab_mapper[dataset_name], self.adv_mask_class.location_extractor,
-                                                                                    self.adv_mask_class.fxz_projector, self.embedders, device, include_others=True)
-            self.target_embedding_wo_mask[dataset_name] = utils.get_person_embedding(self.config, loader, self.config.test_celeb_lab_mapper[dataset_name], self.adv_mask_class.location_extractor,
-                                                                                     self.adv_mask_class.fxz_projector, self.embedders, device, include_others=False)
+        for dataset_name, loader in emb_loaders.items():
+            self.target_embedding_w_mask[dataset_name] = utils.get_person_embedding(self.config, loader, self.config.test_celeb_lab_mapper[dataset_name], self.location_extractor,
+                                                                                    self.fxz_projector, self.embedders, device, include_others=True)
+            self.target_embedding_wo_mask[dataset_name] = utils.get_person_embedding(self.config, loader, self.config.test_celeb_lab_mapper[dataset_name], self.location_extractor,
+                                                                                     self.fxz_projector, self.embedders, device, include_others=False)
         self.random_mask_t = utils.load_mask(self.config, self.config.random_mask_path, device)
         self.blue_mask_t = utils.load_mask(self.config, self.config.blue_mask_path, device)
         # self.black_mask_t = utils.load_mask(self.config, self.config.black_mask_path, device)
@@ -46,11 +59,14 @@ class Evaluator:
         self.face3_mask_t = utils.load_mask(self.config, self.config.face3_mask_path, device)
         self.mask_names = ['Clean', 'Adv', 'Random', 'Blue', 'Face1', 'Face3']
 
+        Path(self.config.current_dir).mkdir(parents=True, exist_ok=True)
+        utils.save_class_to_file(self.config, self.config.current_dir)
+
     def test(self):
         if self.config.is_real_person:
             return
         self.calc_overall_similarity()
-        for dataset_name in self.loaders.keys():
+        for dataset_name in self.test_loaders.keys():
             # similarities_target_with_mask = self.get_final_similarity_from_disk('with_mask', dataset_name=dataset_name)
             # similarities_target_without_mask = self.get_final_similarity_from_disk('without_mask', dataset_name=dataset_name)
             # self.calc_similarity_statistics(similarities_target_with_mask, target_type='with', dataset_name=dataset_name)
@@ -83,8 +99,8 @@ class Evaluator:
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', UserWarning)
 
-            adv_patch = self.adv_mask_class.best_patch.to(device)
-            for dataset_name, loader in self.loaders.items():
+            adv_patch = self.best_patch.to(device)
+            for dataset_name, loader in self.test_loaders.items():
                 df_with_mask = pd.DataFrame(columns=['y_true', 'y_pred'])
                 df_without_mask = pd.DataFrame(columns=['y_true', 'y_pred'])
                 for img_batch, img_names, cls_id in tqdm(loader):
@@ -141,33 +157,33 @@ class Evaluator:
                 pickle.dump(sim, f)
 
     def apply_all_masks(self, img_batch, adv_patch):
-        img_batch_applied_adv = utils.apply_mask(self.adv_mask_class.location_extractor,
-                                                 self.adv_mask_class.fxz_projector, img_batch, adv_patch)
-        img_batch_applied_random = utils.apply_mask(self.adv_mask_class.location_extractor,
-                                                    self.adv_mask_class.fxz_projector, img_batch,
+        img_batch_applied_adv = utils.apply_mask(self.location_extractor,
+                                                 self.fxz_projector, img_batch, adv_patch)
+        img_batch_applied_random = utils.apply_mask(self.location_extractor,
+                                                    self.fxz_projector, img_batch,
                                                     self.random_mask_t)
-        img_batch_applied_blue = utils.apply_mask(self.adv_mask_class.location_extractor,
-                                                  self.adv_mask_class.fxz_projector, img_batch,
+        img_batch_applied_blue = utils.apply_mask(self.location_extractor,
+                                                  self.fxz_projector, img_batch,
                                                   self.blue_mask_t[:, :3],
                                                   self.blue_mask_t[:, 3], is_3d=True)
-        # img_batch_applied_black = utils.apply_mask(self.adv_mask_class.location_extractor,
-        #                                            self.adv_mask_class.fxz_projector, img_batch,
+        # img_batch_applied_black = utils.apply_mask(self.location_extractor,
+        #                                            self.fxz_projector, img_batch,
         #                                            self.black_mask_t[:, :3],
         #                                            self.black_mask_t[:, 3], is_3d=True)
-        # img_batch_applied_white = utils.apply_mask(self.adv_mask_class.location_extractor,
-        #                                            self.adv_mask_class.fxz_projector, img_batch,
+        # img_batch_applied_white = utils.apply_mask(self.location_extractor,
+        #                                            self.fxz_projector, img_batch,
         #                                            self.white_mask_t[:, :3],
         #                                            self.white_mask_t[:, 3], is_3d=True)
-        img_batch_applied_face1 = utils.apply_mask(self.adv_mask_class.location_extractor,
-                                                   self.adv_mask_class.fxz_projector, img_batch,
+        img_batch_applied_face1 = utils.apply_mask(self.location_extractor,
+                                                   self.fxz_projector, img_batch,
                                                    self.face1_mask_t[:, :3],
                                                    self.face1_mask_t[:, 3], is_3d=True)
-        # img_batch_applied_face2 = utils.apply_mask(self.adv_mask_class.location_extractor,
-        #                                            self.adv_mask_class.fxz_projector, img_batch,
+        # img_batch_applied_face2 = utils.apply_mask(self.location_extractor,
+        #                                            self.fxz_projector, img_batch,
         #                                            self.face2_mask_t[:, :3],
         #                                            self.face2_mask_t[:, 3], is_3d=True)
-        img_batch_applied_face3 = utils.apply_mask(self.adv_mask_class.location_extractor,
-                                                   self.adv_mask_class.fxz_projector, img_batch,
+        img_batch_applied_face3 = utils.apply_mask(self.location_extractor,
+                                                   self.fxz_projector, img_batch,
                                                    self.face3_mask_t[:, :3],
                                                    self.face3_mask_t[:, 3], is_3d=True)
 
@@ -333,3 +349,17 @@ class Evaluator:
         df_mean.to_csv(os.path.join(self.config.current_dir, 'final_results', 'stats', 'average_precision', dataset_name, 'mean_df' + '_' + target_type + '.csv'), index=False)
         df_std.to_csv(os.path.join(self.config.current_dir, 'final_results', 'stats', 'average_precision', dataset_name, 'std_df' + '_' + target_type + '.csv'), index=False)
 
+
+def main():
+    mode = 'universal'
+    config = patch_config_types[mode]()
+    adv_mask = Image.open('../data/masks/final_patch-arccosmag.png').convert('RGB')
+    adv_mask_t = transforms.ToTensor()(adv_mask).unsqueeze(0)
+    print('Starting test...', flush=True)
+    evaluator = Evaluator(config, adv_mask_t)
+    evaluator.test()
+    print('Finished test...', flush=True)
+
+
+if __name__ == '__main__':
+    main()

@@ -15,7 +15,7 @@ def train_multiple_persons():
     mode = 'targeted'
     config = patch_config_types[mode]()
     output_folders = []
-    for i, lab in enumerate(sorted(os.listdir(config.train_img_dir)[100:300])):
+    for i, lab in enumerate(sorted(os.listdir(config.train_img_dir)[:100])):
         config.update_current_dir()
         config.set_attribute('celeb_lab', [lab])
         config.set_attribute('celeb_lab_mapper', {0: lab})

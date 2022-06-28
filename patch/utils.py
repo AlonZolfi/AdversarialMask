@@ -8,7 +8,6 @@ import torch
 import random
 from tqdm import tqdm
 from torch.utils.data import Dataset, SubsetRandomSampler, DataLoader
-import torch.nn.functional as F
 from torchvision import transforms
 from collections import OrderedDict
 import face_recognition.insightface_torch.backbones as InsightFaceResnetBackbone
@@ -16,97 +15,8 @@ import face_recognition.magface_torch.backbones as MFBackbone
 from landmark_detection.face_alignment.face_alignment import FaceAlignment, LandmarksType
 from landmark_detection.pytorch_face_landmark.models import mobilefacenet
 from config import embedders_dict
-
-
-class CustomDataset(Dataset):
-    def __init__(self, img_dir, lab_dir, max_lab, img_size, shuffle=True, transform=None):
-        self.img_dir = img_dir
-        self.lab_dir = lab_dir
-        self.img_size = img_size
-        self.shuffle = shuffle
-        self.img_names = self.get_image_names()
-        self.img_paths = self.get_image_paths()
-        self.lab_paths = self.get_lab_paths()
-        self.max_n_labels = max_lab
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.img_names)
-
-    def __getitem__(self, idx):
-        assert idx <= len(self), 'index range error'
-        img_path = os.path.join(self.img_dir, self.img_names[idx])
-        lab_path = os.path.join(self.lab_dir, self.img_names[idx]).replace('.jpg', '.txt').replace('.png', '.txt')
-        image = Image.open(img_path).convert('RGB')
-        if os.path.getsize(lab_path):  # check to see if label file contains data.
-            label = np.loadtxt(lab_path, ndmin=1)
-        else:
-            label = np.ones([1])
-
-        label = torch.from_numpy(label).float()
-        if label.dim() == 1:
-            label = label.unsqueeze(0)
-
-        # image, label = self.pad_and_scale(image, label)
-        if self.transform:
-            image = self.transform(image)
-
-        label = self.pad_lab(label)
-        return image, label
-
-    def get_image_names(self):
-        png_images = fnmatch.filter(os.listdir(self.img_dir), '*.png')
-        jpg_images = fnmatch.filter(os.listdir(self.img_dir), '*.jpg')
-        n_png_images = len(png_images)
-        n_jpg_images = len(jpg_images)
-        n_images = n_png_images + n_jpg_images
-        n_labels = len(fnmatch.filter(os.listdir(self.lab_dir), '*.txt'))
-        assert n_images == n_labels, "Number of images and number of labels don't match"
-        return png_images + jpg_images
-
-    def get_image_paths(self):
-        img_paths = []
-        for img_name in self.img_names:
-            img_paths.append(os.path.join(self.img_dir, img_name))
-        return img_paths
-
-    def get_lab_paths(self):
-        lab_paths = []
-        for img_name in self.img_names:
-            lab_path = os.path.join(self.lab_dir, img_name).replace('.jpg', '.txt').replace('.png', '.txt')
-            lab_paths.append(lab_path)
-        return lab_paths
-
-    def pad_and_scale(self, img, lab):
-        w, h = img.size
-        if w == h:
-            padded_img = img
-        else:
-            dim_to_pad = 1 if w < h else 2
-            if dim_to_pad == 1:
-                padding = (h - w) / 2
-                padded_img = Image.new('RGB', (h, h), color=(255, 255, 255))
-                padded_img.paste(img, (int(padding), 0))
-                lab[:, [1]] = (lab[:, [1]] * w + padding) / h
-                lab[:, [3]] = (lab[:, [3]] * w / h)
-            else:
-                padding = (w - h) / 2
-                padded_img = Image.new('RGB', (w, w), color=(255, 255, 255))
-                padded_img.paste(img, (0, int(padding)))
-                lab[:, [2]] = (lab[:, [2]] * h + padding) / w
-                lab[:, [4]] = (lab[:, [4]] * h / w)
-        resize = transforms.Resize(self.img_size)
-        padded_img = resize(padded_img)  # choose here
-
-        return padded_img, lab
-
-    def pad_lab(self, lab):
-        pad_size = self.max_n_labels - lab.shape[0]
-        if pad_size > 0:
-            padded_lab = F.pad(lab, [0, 0, 0, pad_size], value=-1)
-        else:
-            padded_lab = lab
-        return padded_lab
+import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 
 
 class CustomDataset1(Dataset):
@@ -139,7 +49,8 @@ class CustomDataset1(Dataset):
             files_in_folder = [files_in_folder[i] for i in indices]
         png_images = fnmatch.filter(files_in_folder, '*.png')
         jpg_images = fnmatch.filter(files_in_folder, '*.jpg')
-        return png_images + jpg_images
+        jpeg_images = fnmatch.filter(files_in_folder, '*.jpeg')
+        return png_images + jpg_images + jpeg_images
 
 
 class SplitDataset:
@@ -190,7 +101,7 @@ def rewrite_weights_dict(sd):
     sd.pop('fc.weight')
     sd_new = OrderedDict()
     for key, value in sd.items():
-        new_key = key.replace('features.module.', '')  # .replace('module.', '')
+        new_key = key.replace('features.module.', '')
         sd_new[new_key] = value
     return sd_new
 
@@ -288,7 +199,6 @@ def get_nested_dataset_files(img_dir, person_labs):
 def get_split_indices(img_dir, celeb_lab, num_of_images):
     dataset_nested_files = get_nested_dataset_files(img_dir, celeb_lab)
 
-    # if config.num_of_train_images > 0:
     nested_indices = [np.array(range(len(arr))) for i, arr in enumerate(dataset_nested_files)]
     nested_indices_continuous = [nested_indices[0]]
     for i, arr in enumerate(nested_indices[1:]):
@@ -296,37 +206,8 @@ def get_split_indices(img_dir, celeb_lab, num_of_images):
     train_indices = np.array([np.random.choice(arr_idx, size=num_of_images, replace=False) for arr_idx in
                         nested_indices_continuous]).ravel()
     test_indices = list(set(list(range(nested_indices_continuous[-1][-1]))) - set(train_indices))
-    # val_indices = []
-    # test_indices = np.array(list(set(list(range(nested_indices_continuous[-1][-1]))) - set(train_indices)))
-    # if shuffle:
-    #     np.random.shuffle(indices)
-        # np.random.shuffle(test_indices)
-    # else:
-    #     dataset_size = len([item for sublist in dataset_nested_files for item in sublist])
-    #     indices = list(range(dataset_size))
-    #     if config.shuffle:
-    #         np.random.shuffle(indices)
-    #     val_split = int(np.floor(config.val_split * dataset_size))
-    #     test_split = int(np.floor(config.test_split * dataset_size))
-    #     train_indices = indices[val_split + test_split:]
-    #     val_indices = indices[:val_split]
-    #     test_indices = indices[val_split:val_split + test_split]
 
     return train_indices, test_indices
-
-
-def get_split_indices_real_images(config):
-    dataset_size = len(os.listdir(config.test_img_dir))
-    indices = list(range(dataset_size))
-    remaining_indices_ratio = 1 - config.val_split - config.test_split
-    val_split = int(np.floor((config.val_split + remaining_indices_ratio*config.val_split) * dataset_size))
-    if config.shuffle:
-        np.random.shuffle(indices)
-
-    val_indices = indices[:val_split]
-    test_indices = indices[val_split:]
-
-    return val_indices, test_indices
 
 
 def get_train_loaders(config):
@@ -344,32 +225,10 @@ def get_train_loaders(config):
                                    indices=train_indices,
                                    transform=transforms.Compose(
                                        [transforms.ColorJitter(brightness=0.2, contrast=0.2, hue=0.2),
-                                        # transforms.RandomHorizontalFlip(),
                                         transforms.Resize(config.img_size),
                                         transforms.ToTensor()]))
-    # val_dataset = CustomDataset1(img_dir=config.img_dir,
-    #                              celeb_lab_mapper=config.celeb_lab_mapper,
-    #                              img_size=config.img_size,
-    #                              indices=val_indices,
-    #                              transform=transforms.Compose(
-    #                                  [transforms.Resize(config.img_size), transforms.ToTensor()]))
-    # test_dataset_known = CustomDataset1(img_dir=config.img_dir,
-    #                                     celeb_lab_mapper=config.celeb_lab_mapper,
-    #                                     img_size=config.img_size,
-    #                                     indices=test_indices,
-    #                                     transform=transforms.Compose(
-    #                                         [transforms.Resize(config.img_size), transforms.ToTensor()]))
-    # test_dataset_unknown = CustomDataset1(img_dir=config.img_dir,
-    #                                       celeb_lab_mapper=config.celeb_lab_mapper_test,
-    #                                       img_size=config.img_size,
-    #                                       indices=None,
-    #                                       transform=transforms.Compose(
-    #                                           [transforms.Resize(config.img_size), transforms.ToTensor()]))
     train_no_aug_loader = DataLoader(train_dataset_no_aug, batch_size=config.train_batch_size)
     train_loader = DataLoader(train_dataset, batch_size=config.train_batch_size)
-    # validation_loader = DataLoader(val_dataset, batch_size=config.train_batch_size)
-    # test_loader_known = DataLoader(test_dataset_known, batch_size=config.test_batch_size)
-    # test_loader_unknown = DataLoader(test_dataset_unknown, batch_size=config.test_batch_size)
 
     return train_no_aug_loader, train_loader
 
@@ -403,47 +262,6 @@ def get_test_loaders(config, dataset_names):
     return emb_loaders, test_loaders
 
 
-'''def get_loaders_real_images(config):
-    val_indices, test_indices = get_split_indices_real_images(config)
-    train_indices = range(len(os.listdir(config.train_img_dir)))
-    train_dataset_no_aug = CustomDataset1(img_dir=config.train_img_dir,
-                                          img_size=config.img_size,
-                                          indices=train_indices,
-                                          transform=transforms.Compose(
-                                              [transforms.Resize(config.img_size),
-                                               transforms.ToTensor()]))
-    train_dataset = CustomDataset1(img_dir=config.train_img_dir,
-                                   img_size=config.img_size,
-                                   indices=train_indices,
-                                   transform=transforms.Compose(
-                                       [transforms.ColorJitter(brightness=0.15, contrast=0.15, hue=0.15),
-                                        transforms.RandomHorizontalFlip(),
-                                        transforms.RandomRotation(degrees=(-15, 15)),
-                                        transforms.Resize(config.img_size),
-                                        transforms.ToTensor()]))
-    val_dataset = CustomDataset1(img_dir=config.test_img_dir,
-                                 img_size=config.img_size,
-                                 indices=val_indices,
-                                 transform=transforms.Compose(
-                                     [transforms.Resize(config.img_size), transforms.ToTensor()]))
-    test_dataset = CustomDataset1(img_dir=config.test_img_dir,
-                                  img_size=config.img_size,
-                                  indices=test_indices,
-                                  transform=transforms.Compose(
-                                      [transforms.Resize(config.img_size), transforms.ToTensor()]))
-    train_no_aug_loader = DataLoader(train_dataset_no_aug, batch_size=config.train_batch_size)
-    train_loader = DataLoader(train_dataset, batch_size=config.train_batch_size)
-    validation_loader = DataLoader(val_dataset, batch_size=config.train_batch_size)
-    test_loader = DataLoader(test_dataset)
-
-    return train_no_aug_loader, train_loader, validation_loader, test_loader'''
-
-
-def normalize_batch(adv_mask_class, img_batch):
-    preds = adv_mask_class.location_extractor(img_batch)
-    return adv_mask_class.normalize_arcface(img_batch, preds)
-
-
 @torch.no_grad()
 def get_person_embedding(config, loader, celeb_lab, location_extractor, fxz_projector, embedders, device, include_others=False):
     print('Calculating persons embeddings {}...'.format('with mask' if include_others else 'without mask'), flush=True)
@@ -475,3 +293,47 @@ def save_class_to_file(config, current_folder):
         d = dict(vars(config))
         d.pop('scheduler_factory')
         json.dump(d, config_file)
+
+
+def get_patch(config):
+    if config.initial_patch == 'random':
+        patch = torch.rand((1, 3, config.patch_size[0], config.patch_size[1]), dtype=torch.float32)
+    elif config.initial_patch == 'white':
+        patch = torch.ones((1, 3, config.patch_size[0], config.patch_size[1]), dtype=torch.float32)
+    elif config.initial_patch == 'black':
+        patch = torch.zeros((1, 3, config.patch_size[0], config.patch_size[1]), dtype=torch.float32) + 0.01
+    uv_face = transforms.ToTensor()(Image.open('../prnet/new_uv.png').convert('L'))
+    patch = patch * uv_face
+    patch.requires_grad_(True)
+    return patch
+
+
+def plot_train_val_loss(config, loss, loss_type):
+    xticks = [x + 1 for x in range(len(loss))]
+    plt.plot(xticks, loss, 'b', label='Training loss')
+    plt.title('Training loss')
+    plt.xlabel(loss_type)
+    plt.ylabel('Loss')
+    plt.legend(loc='upper right')
+    plt.savefig(config.current_dir + '/final_results/train_loss_' + loss_type.lower() + '_plt.png')
+    plt.close()
+
+
+def plot_separate_loss(config, train_losses_epoch, dist_losses, tv_losses):
+    epochs = [x + 1 for x in range(len(train_losses_epoch))]
+    weights = np.array([config.dist_weight, config.tv_weight])
+    number_of_subplots = weights[weights > 0].astype(bool).sum()
+    fig, axes = plt.subplots(nrows=1, ncols=number_of_subplots, figsize=(6 * number_of_subplots, 2 * number_of_subplots), squeeze=False)
+    idx = 0
+    for weight, train_loss, label in zip(weights, [dist_losses,  tv_losses], ['Distance loss', 'Total Variation loss']):
+        if weight > 0:
+            axes[0, idx].plot(epochs, train_loss, c='b', label='Train')
+            axes[0, idx].set_xlabel('Epoch')
+            axes[0, idx].set_ylabel('Loss')
+            axes[0, idx].set_title(label)
+            axes[0, idx].legend(loc='upper right')
+            axes[0, idx].xaxis.set_major_locator(MaxNLocator(integer=True))
+            idx += 1
+    fig.tight_layout()
+    plt.savefig(config.current_dir + '/final_results/separate_loss_plt.png')
+    plt.close()

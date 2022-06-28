@@ -3,6 +3,7 @@ import os
 import datetime
 import time
 
+
 embedders_dict = {
     'resnet18': {
         'layers': [2, 2, 2, 2],
@@ -68,10 +69,10 @@ class BaseConfiguration:
 
         # Train dataset options
         self.is_real_person = False
-        self.train_dataset_name = 'CASIA'  # CASIA-WebFace_aligned_100, CASIA-WebFace_aligned_1000, CelebA_aligned, CASIA_aligned_clean1_center
+        self.train_dataset_name = 'CASIA'
         self.train_img_dir = os.path.join('..', 'datasets', self.train_dataset_name)
         self.train_number_of_people = 100
-        self.celeb_lab = os.listdir(self.train_img_dir)[:self.train_number_of_people]  # 2820, 3699, 9040, 9915, os.listdir(self.img_dir)
+        self.celeb_lab = os.listdir(self.train_img_dir)[:self.train_number_of_people]
         self.celeb_lab_mapper = {i: lab for i, lab in enumerate(self.celeb_lab)}
         self.num_of_train_images = 5
 
@@ -99,13 +100,13 @@ class BaseConfiguration:
         self.landmark_detector_type = 'mobilefacenet'  # face_alignment, mobilefacenet
 
         # Embedder options
-        self.train_embedder_names = ['resnet100_arcface','resnet100_magface','resnet100_magface']
+        self.train_embedder_names = ['resnet100_arcface', 'resnet100_cosface', 'resnet100_magface']
         self.test_embedder_names = ['resnet100_arcface', 'resnet50_arcface', 'resnet34_arcface', 'resnet18_arcface',
                                     'resnet100_cosface', 'resnet50_cosface', 'resnet34_cosface', 'resnet18_cosface',
                                     'resnet100_magface']
 
         # Loss options
-        self.dist_loss_type = 'cossim'  # cossim, L2, L1
+        self.dist_loss_type = 'cossim'
         self.dist_weight = 1
         self.tv_weight = 0.1
 
@@ -116,7 +117,6 @@ class BaseConfiguration:
         self.black_mask_path = os.path.join(self.masks_path, 'black.png')
         self.white_mask_path = os.path.join(self.masks_path, 'white.png')
         self.face1_mask_path = os.path.join(self.masks_path, 'face1.png')
-        # self.face2_mask_path = os.path.join(self.masks_path, 'face2.png')
         self.face3_mask_path = os.path.join(self.masks_path, 'face3.png')
 
         self.update_current_dir()
@@ -130,18 +130,6 @@ class BaseConfiguration:
         self.current_dir = os.path.join("experiments", month_name, time.strftime("%d-%m-%Y") + '_' + time.strftime("%H-%M-%S"))
         if 'SLURM_JOBID' in os.environ.keys():
             self.current_dir += '_' + os.environ['SLURM_JOBID']
-
-
-class TrainingOnCluster(BaseConfiguration):
-    def __init__(self):
-        super(TrainingOnCluster, self).__init__()
-        self.patch_name = 'cluster'
-
-
-class TrainingOnPrivateComputer(BaseConfiguration):
-    def __init__(self):
-        super(TrainingOnPrivateComputer, self).__init__()
-        self.patch_name = 'private'
 
 
 class UniversalAttack(BaseConfiguration):
@@ -183,8 +171,6 @@ class TargetedAttack(BaseConfiguration):
 
 patch_config_types = {
     "base": BaseConfiguration,
-    "cluster": TrainingOnCluster,
-    "private": TrainingOnPrivateComputer,
     "universal": UniversalAttack,
     "targeted": TargetedAttack,
 }

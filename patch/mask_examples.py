@@ -13,8 +13,8 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 face_landmark_detector = utils.get_landmark_detector(cfg, device)
 location_extractor = LandmarkExtractor(device, face_landmark_detector, cfg.img_size).to(device)
 fxz_projector = FaceXZooProjector(device, cfg.img_size, cfg.patch_size).to(device)
-img_t = transforms.ToTensor()(Image.open('../datasets/real_aligned/Daniel/IMG_20211116_150209.jpg')).unsqueeze(0).to(device)
-person_id = 'Daniel1'
+img_t = transforms.ToTensor()(Image.open('image_path')).unsqueeze(0).to(device)
+person_id = 'ID1'
 Path(os.path.join('..', 'outputs', person_id)).mkdir(parents=True, exist_ok=True)
 transforms.ToPILImage()(img_t[0].cpu()).save(os.path.join('..', 'outputs', person_id, 'clean' + person_id + '.png'))
 for mask_path, is_3d, save_name in [('final_patch.png', False, 'adv'),

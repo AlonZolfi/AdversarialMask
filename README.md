@@ -1,10 +1,13 @@
 # Adversarial Mask: Real-World Universal Adversarial Attack on Face Recognition Models
 
-This is a PyTorch implementation of [Adversarial Mask: Real-World Universal Adversarial Attack on Face Recognition Models](https://arxiv.org/pdf/2111.10759.pdf) by Alon Zolfi, Shai Avidan, Yuval Elovici, Asaf Shabtai. 
+This is a PyTorch implementation of [Adversarial Mask: Real-World Universal Adversarial Attack on Face Recognition Models](https://arxiv.org/pdf/2111.10759.pdf) by Alon Zolfi, Shai Avidan, Yuval Elovici, Asaf Shabtai.
+Mask projection code is partially inspired from [FaceXZoo](https://github.com/JDAI-CV/FaceX-Zoo).
+
+<p align="center">
+<img src="https://github.com/AlonZolfi/AdversarialMask/blob/master/data/intro.png" />
+</p>
 
 ![projection pipeline](https://github.com/AlonZolfi/AdversarialMask/blob/master/data/projection_pipeline.png?raw=true)
-
-![intro](https://github.com/AlonZolfi/AdversarialMask/blob/master/data/intro.png?raw=true)
 
 ## Face Recognition Models
 

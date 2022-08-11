@@ -7,7 +7,6 @@ import pickle
 from pathlib import Path
 import datetime
 import time
-from visualization import box_plots_examples
 import torch
 
 
@@ -31,18 +30,6 @@ def train_multiple_persons():
         output_folders.append(config.current_dir)
         del adv_mask, evaluator
         torch.cuda.empty_cache()
-
-    print('Starting to create similarity boxes plots', flush=True)
-    my_date = datetime.datetime.now()
-    month_name = my_date.strftime("%B")
-    final_output_path = os.path.join("experiments", month_name, time.strftime("%d-%m-%Y") + '_' + time.strftime("%H-%M-%S") + '_' + os.environ['SLURM_JOBID'])
-    Path(final_output_path).mkdir(parents=True, exist_ok=True)
-    for output_folder in output_folders:
-        move(output_folder, final_output_path)
-    Path(os.path.join(final_output_path, 'combined_sim_boxes')).mkdir(parents=True, exist_ok=True)
-    box_plots_examples.gather_sim_and_plot(config.train_dataset_name, target_type='with_mask', embedder_names=config.test_embedder_names, job_id=os.environ['SLURM_JOBID'])
-    box_plots_examples.gather_sim_and_plot(config.train_dataset_name, target_type='without_mask', embedder_names=config.test_embedder_names, job_id=os.environ['SLURM_JOBID'])
-    print('Finishing similarity boxes plots', flush=True)
 
 
 if __name__ == '__main__':

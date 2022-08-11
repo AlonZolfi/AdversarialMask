@@ -1,10 +1,5 @@
 import sys
 import os
-
-if sys.base_prefix.__contains__('home/zolfi'):
-    sys.path.append('/home/zolfi/AdversarialMask')
-    sys.path.append('/home/zolfi/AdversarialMask/patch')
-    os.environ['QT_QPA_PLATFORM'] = 'offscreen'
     
 import random
 from pathlib import Path

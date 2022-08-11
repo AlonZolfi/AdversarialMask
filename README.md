@@ -28,7 +28,7 @@ Download weights from [here](https://drive.google.com/file/d/1Bd87admxOZvbIOAyTk
 
 Code is taken from [here](https://github.com/cunjian/pytorch_face_landmark).
 Download weights from [here](https://drive.google.com/file/d/1T8J73UTcB25BEJ_ObAJczCkyGKW5VaeY/view?usp=sharing).
-(Weights file is already included in this repository under [./landmark_detection/pytorch_face_landmark/weights](https://github.com/AlonZolfi/AdversarialMask/tree/master/landmark_detection/pytorch_face_landmark/weights)).
+(Weights file is already included in this repository under [landmark_detection/pytorch_face_landmark/weights](https://github.com/AlonZolfi/AdversarialMask/tree/master/landmark_detection/pytorch_face_landmark/weights)).
 
 ### Face Alignment
 
@@ -40,7 +40,7 @@ Note: this model is more accurate, however, it is a lot larger than MobileFaceNe
 ## 3D Face Reconstruction Model
 
 Code is taken from [here](https://github.com/YadiraF/PRNet).
-Download weights from [here](https://drive.google.com/file/d/1UoE-XuW1SDLUjZmJPkIZ1MLxvQFgmTFH/view). (Weights file is already included in this repository under [./prnet](https://github.com/AlonZolfi/AdversarialMask/tree/master/prnet).
+Download weights from [here](https://drive.google.com/file/d/1UoE-XuW1SDLUjZmJPkIZ1MLxvQFgmTFH/view). (Weights file is already included in this repository under [prnet](https://github.com/AlonZolfi/AdversarialMask/tree/master/prnet)).
 
 ## Datasets
 
@@ -50,7 +50,7 @@ The cleaned up version of the dataset can be found [here](https://onedrive.live.
 
 ## Installation
 
-Install the required packages in [./req.yaml](https://github.com/AlonZolfi/AdversarialMask/tree/master/req.yaml).
+Install the required packages in [req.txt](https://github.com/AlonZolfi/AdversarialMask/tree/master/req.txt).
 
 ## Usage
 
@@ -60,11 +60,11 @@ Configurations can be changed in the [config](https://github.com/AlonZolfi/Adver
 
 ### Train
 
-Run the [./patch/train.py](https://github.com/AlonZolfi/AdversarialMask/blob/master/patch/train.py) file.
+Run the [patch/train.py](https://github.com/AlonZolfi/AdversarialMask/blob/master/patch/train.py) file.
 
 ### Test
 
-Run the [./patch/test.py](https://github.com/AlonZolfi/AdversarialMask/blob/master/patch/test.py) file. Specify the location of the adversarial mask image in main function.
+Run the [patch/test.py](https://github.com/AlonZolfi/AdversarialMask/blob/master/patch/test.py) file. Specify the location of the adversarial mask image in main function.
 
 ## Citation
 ```

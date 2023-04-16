@@ -68,10 +68,12 @@ Run the [patch/test.py](https://github.com/AlonZolfi/AdversarialMask/blob/master
 
 ## Citation
 ```
-@article{zolfi2021adversarial,
-  title={Adversarial Mask: Real-World Adversarial Attack Against Face Recognition Models},
+@inproceedings{zolfi2023adversarial,
+  title={Adversarial Mask: Real-World Universal Adversarial Attack on Face Recognition Models},
   author={Zolfi, Alon and Avidan, Shai and Elovici, Yuval and Shabtai, Asaf},
-  journal={arXiv preprint arXiv:2111.10759},
-  year={2021}
+  booktitle={Machine Learning and Knowledge Discovery in Databases: European Conference, ECML PKDD 2022, Grenoble, France, September 19--23, 2022, Proceedings, Part III},
+  pages={304--320},
+  year={2023},
+  organization={Springer}
 }
 ```
